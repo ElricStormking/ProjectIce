@@ -1,0 +1,797 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sticky Bomb Test</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            overflow: hidden;
+            background-color: #000;
+        }
+        #game-container {
+            width: 100%;
+            height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            overflow: hidden;
+        }
+        .instructions {
+            position: absolute;
+            bottom: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            color: white;
+            background: rgba(0,0,0,0.7);
+            padding: 10px;
+            border-radius: 5px;
+            max-width: 80%;
+            text-align: center;
+            font-family: Arial, sans-serif;
+        }
+    </style>
+    <!-- Include Phaser -->
+    <script src="js/lib/phaser.min.js"></script>
+    <!-- Include your game files -->
+    <script src="js/BlockTypes.js"></script>
+    <script src="js/managers/BlockManager.js"></script>
+    <script src="js/BombUtils.js"></script>
+    <script src="js/BlockUtils.js"></script>
+</head>
+<body>
+    <div id="game-container"></div>
+    <div class="instructions">
+        <h3>Sticky Bomb Test</h3>
+        <p>Launch the sticky bomb at blocks. It should stick without exploding.</p>
+        <p>Launch a blast bomb to trigger the sticky bomb's explosion.</p>
+    </div>
+
+    <script>
+        // Define a simple test scene for sticky bomb behavior
+        class StickyBombTestScene extends Phaser.Scene {
+            constructor() {
+                super({ key: 'StickyBombTestScene' });
+                
+                // Set up constants
+                this.BOW_X = 300;
+                this.BOW_Y = 540;
+                this.MAX_DRAG_DISTANCE = 200;
+                this.SHOT_POWER = 0.13;
+                this.debugMode = true;
+                
+                // Define bomb types
+                this.BOMB_TYPES = {
+                    BLAST: 'blast_bomb',
+                    STICKY: 'sticky_bomb'
+                };
+                
+                // Track bombs
+                this.activeStickyBombs = [];
+                this.bombState = {
+                    active: false,
+                    lastBombFired: 0
+                };
+            }
+            
+            preload() {
+                // Load minimal assets needed for testing
+                this.load.image('bomb', 'assets/images/bombs/blast_bomb.png');
+                this.load.image('blast_bomb', 'assets/images/bombs/blast_bomb.png');
+                this.load.image('sticky_bomb', 'assets/images/bombs/sticky_bomb.png');
+                this.load.image('bow', 'assets/images/bombs/bow.png');
+                this.load.image('block', 'assets/images/level1/ice_block.png');
+                this.load.image('particle', 'assets/images/bombs/particle.png');
+                this.load.image('sticky_particle', 'assets/images/bombs/sticky_particle.png');
+                this.load.image('background', 'assets/images/level1/background.png');
+                
+                // Load audio
+                this.load.audio('explosion', 'assets/audio/explosion.mp3');
+            }
+            
+            create() {
+                console.log("StickyBombTestScene: Creating test environment");
+                
+                // Add background
+                this.add.image(960, 540, 'background').setDepth(0);
+                
+                // Create bow 
+                this.add.image(this.BOW_X, this.BOW_Y, 'bow').setDepth(10);
+                
+                // Create ice blocks for testing
+                this.iceBlocks = [];
+                this.createIceBlocks();
+                
+                // Current selected bomb type
+                this.currentBombType = this.BOMB_TYPES.STICKY;
+                
+                // Create button for switching bomb types
+                this.createBombTypeButtons();
+                
+                // Create initial bomb
+                this.createBomb(this.currentBombType);
+                
+                // Setup collisions
+                this.setupCollisions();
+                
+                // Setup input handlers
+                this.setupInputHandlers();
+                
+                // Setup utility classes
+                this.bombUtils = new BombUtils(this);
+                
+                // Add instructions
+                const instructions = this.add.text(
+                    960, 100, 
+                    "1. Drag to fire sticky bomb at blocks\n2. It should stick without exploding\n3. Switch to blast bomb and fire near sticky bomb to trigger it",
+                    { 
+                        fontFamily: 'Arial', 
+                        fontSize: '24px', 
+                        fill: '#ffffff',
+                        align: 'center',
+                        stroke: '#000000',
+                        strokeThickness: 4,
+                        shadow: { blur: 4, fill: true, offsetX: 2, offsetY: 2 }
+                    }
+                ).setOrigin(0.5);
+                
+                console.log("Test scene setup complete");
+            }
+            
+            createIceBlocks() {
+                // Create some test blocks in the center of the screen
+                for (let row = 0; row < 3; row++) {
+                    for (let col = 0; col < 3; col++) {
+                        const block = this.matter.add.image(
+                            960 - 100 + col * 100, 
+                            540 - 100 + row * 100, 
+                            'block'
+                        );
+                        
+                        block.setStatic(true);
+                        block.setDisplaySize(80, 80);
+                        block.setDepth(5);
+                        block.isActive = true;
+                        
+                        this.iceBlocks.push(block);
+                    }
+                }
+                
+                console.log(`Created ${this.iceBlocks.length} ice blocks for testing`);
+            }
+            
+            createBombTypeButtons() {
+                // Add button to switch between bomb types
+                const buttonY = 50;
+                
+                // Blast bomb button
+                const blastButton = this.add.image(860, buttonY, 'blast_bomb')
+                    .setInteractive()
+                    .setDepth(100)
+                    .setDisplaySize(60, 60);
+                    
+                blastButton.on('pointerdown', () => {
+                    this.selectBombType(this.BOMB_TYPES.BLAST);
+                });
+                
+                // Sticky bomb button
+                const stickyButton = this.add.image(960, buttonY, 'sticky_bomb')
+                    .setInteractive()
+                    .setDepth(100)
+                    .setDisplaySize(60, 60);
+                    
+                stickyButton.on('pointerdown', () => {
+                    this.selectBombType(this.BOMB_TYPES.STICKY);
+                });
+                
+                // Add labels
+                this.add.text(860, buttonY + 40, "Blast", { 
+                    fontFamily: 'Arial', 
+                    fontSize: '16px', 
+                    fill: '#ffffff' 
+                }).setOrigin(0.5).setDepth(100);
+                
+                this.add.text(960, buttonY + 40, "Sticky", { 
+                    fontFamily: 'Arial', 
+                    fontSize: '16px', 
+                    fill: '#ffffff' 
+                }).setOrigin(0.5).setDepth(100);
+                
+                // Add indicator
+                this.selectionIndicator = this.add.circle(960, buttonY, 35, 0xffff00, 0.3)
+                    .setDepth(99);
+                
+                // Set initial selection
+                this.updateBombSelection();
+            }
+            
+            selectBombType(bombType) {
+                this.currentBombType = bombType;
+                console.log(`Switched to ${bombType}`);
+                
+                this.updateBombSelection();
+                
+                // Create a new bomb of this type
+                if (!this.isAiming && !this.bombState.active) {
+                    this.createBomb(bombType);
+                }
+            }
+            
+            updateBombSelection() {
+                // Update selection indicator position
+                if (this.currentBombType === this.BOMB_TYPES.BLAST) {
+                    this.selectionIndicator.x = 860;
+                } else {
+                    this.selectionIndicator.x = 960;
+                }
+            }
+            
+            createBomb(bombType = 'bomb') {
+                console.log(`Creating ${bombType}`);
+                
+                // Clean up existing bomb
+                if (this.bomb && this.bomb.scene) {
+                    this.bomb.destroy();
+                }
+                
+                // Create inactive bomb at slingshot position
+                this.bomb = this.matter.add.image(this.BOW_X, this.BOW_Y - 20, bombType);
+                
+                // Configure physics
+                this.bomb.setCircle(30);
+                this.bomb.setStatic(true);
+                this.bomb.setDepth(12);
+                this.bomb.setDisplaySize(60, 60);
+                this.bomb.bombType = bombType;
+                
+                // Reset state
+                this.bombState.active = false;
+                this.isAiming = false;
+                
+                // Create elastic line visualization
+                this.createElasticLine(this.BOW_X, this.BOW_Y - 20);
+                
+                return this.bomb;
+            }
+            
+            createElasticLine(bombX, bombY) {
+                // Clear existing lines
+                if (this.elasticLines) {
+                    this.elasticLines.forEach(line => {
+                        if (line && line.scene) {
+                            line.destroy();
+                        }
+                    });
+                }
+                this.elasticLines = [];
+                
+                // Create new elastic lines
+                const topLine = this.add.line(
+                    0, 0, 
+                    this.BOW_X, this.BOW_Y-40,
+                    bombX, bombY,
+                    0xFFFFFF
+                );
+                topLine.setOrigin(0, 0);
+                topLine.setLineWidth(3);
+                topLine.setDepth(11);
+                this.elasticLines.push(topLine);
+                
+                const bottomLine = this.add.line(
+                    0, 0,
+                    bombX, bombY,
+                    this.BOW_X, this.BOW_Y+40,
+                    0xFFFFFF
+                );
+                bottomLine.setOrigin(0, 0);
+                bottomLine.setLineWidth(3);
+                bottomLine.setDepth(11);
+                this.elasticLines.push(bottomLine);
+            }
+            
+            setupInputHandlers() {
+                // Initialize input handling
+                this.input.on('pointerdown', (pointer) => {
+                    // Only handle input if we have a bomb at the slingshot
+                    if (this.bomb && this.bomb.body && this.bomb.body.isStatic && !this.bombState.active) {
+                        const distance = Phaser.Math.Distance.Between(
+                            pointer.x, pointer.y,
+                            this.bomb.x, this.bomb.y
+                        );
+                        
+                        // Only start aiming if pointer is near the bomb
+                        if (distance < 100) {
+                            this.isAiming = true;
+                        }
+                    }
+                });
+                
+                this.input.on('pointermove', (pointer) => {
+                    if (this.isAiming && this.bomb && this.bomb.body) {
+                        this.updateBombPosition(pointer);
+                    }
+                });
+                
+                this.input.on('pointerup', (pointer) => {
+                    if (this.isAiming && this.bomb && this.bomb.body) {
+                        this.fireBomb(pointer);
+                    }
+                    this.isAiming = false;
+                });
+            }
+            
+            updateBombPosition(pointer) {
+                if (!this.bomb || !this.bomb.body) return;
+                
+                // Calculate direction vector from slingshot to pointer
+                let dx = this.BOW_X - pointer.x;
+                let dy = this.BOW_Y - 20 - pointer.y;
+                
+                // Limit drag distance
+                const distance = Math.sqrt(dx * dx + dy * dy);
+                if (distance > this.MAX_DRAG_DISTANCE) {
+                    dx = dx * this.MAX_DRAG_DISTANCE / distance;
+                    dy = dy * this.MAX_DRAG_DISTANCE / distance;
+                }
+                
+                // Update bomb position
+                const bombX = this.BOW_X - dx;
+                const bombY = this.BOW_Y - 20 - dy;
+                this.bomb.setPosition(bombX, bombY);
+                
+                // Update elastic lines
+                this.createElasticLine(bombX, bombY);
+            }
+            
+            fireBomb(pointer) {
+                if (!this.bomb || !this.bomb.body) return;
+                
+                // Calculate force based on drag distance
+                const dx = this.BOW_X - this.bomb.x;
+                const dy = (this.BOW_Y - 20) - this.bomb.y;
+                
+                // Apply force in the opposite direction of drag
+                this.bomb.setStatic(false);
+                this.bomb.setVelocity(dx * this.SHOT_POWER, dy * this.SHOT_POWER);
+                
+                // Set isLaunched flag
+                this.bomb.isLaunched = true;
+                
+                // Update bomb state
+                this.bombState.active = true;
+                this.bombState.lastBombFired = Date.now();
+                
+                // Clear elastic lines
+                if (this.elasticLines) {
+                    this.elasticLines.forEach(line => {
+                        if (line && line.scene) {
+                            line.destroy();
+                        }
+                    });
+                    this.elasticLines = [];
+                }
+                
+                console.log(`Fired ${this.bomb.bombType}`);
+            }
+            
+            setupCollisions() {
+                // Setup collision detection
+                this.matter.world.on('collisionstart', (event) => {
+                    const pairs = event.pairs;
+                    if (!pairs || !this.bomb) return;
+                    
+                    let hasExploded = false;
+                    let bombStuck = false;
+                    
+                    // Process each collision pair
+                    for (let i = 0; i < pairs.length; i++) {
+                        const bodyA = pairs[i].bodyA;
+                        const bodyB = pairs[i].bodyB;
+                        
+                        // Find which is the bomb and which is the block
+                        let bombBody, blockBody;
+                        if (bodyA.gameObject === this.bomb) {
+                            bombBody = bodyA;
+                            blockBody = bodyB;
+                        } else if (bodyB.gameObject === this.bomb) {
+                            bombBody = bodyB;
+                            blockBody = bodyA;
+                        } else {
+                            continue; // Neither is our bomb
+                        }
+                        
+                        // Only process if the other body is a block
+                        if (!blockBody.gameObject) continue;
+                        
+                        const block = blockBody.gameObject;
+                        if (!this.iceBlocks.includes(block)) continue;
+                        
+                        // Get bomb position and type
+                        const bombX = this.bomb.x;
+                        const bombY = this.bomb.y;
+                        const bombType = this.bomb.bombType;
+                        
+                        // Process based on bomb type
+                        if (!hasExploded && !bombStuck) {
+                            switch(bombType) {
+                                case this.BOMB_TYPES.BLAST:
+                                    // Blast bombs explode on contact
+                                    this.handleBlastBomb(bombX, bombY);
+                                    hasExploded = true;
+                                    
+                                    // Mark as exploded
+                                    this.bomb.hasExploded = true;
+                                    break;
+                                    
+                                case this.BOMB_TYPES.STICKY:
+                                    // Sticky bombs stick to blocks
+                                    this.handleStickyBomb(bombX, bombY, block);
+                                    bombStuck = true;
+                                    
+                                    // Do NOT mark as exploded
+                                    this.bomb.hasExploded = false;
+                                    this.bomb.isSticky = true;
+                                    break;
+                            }
+                        }
+                    }
+                    
+                    // Handle bomb cleanup
+                    if (hasExploded && this.bomb && !this.bomb.isSticky) {
+                        this.bomb.destroy();
+                        this.bomb = null;
+                        this.bombState.active = false;
+                        
+                        // Create new bomb after a delay
+                        this.time.delayedCall(1000, () => {
+                            this.createBomb(this.currentBombType);
+                        });
+                    } else if (bombStuck) {
+                        // For sticky bombs, we keep the reference but create a new bomb
+                        this.time.delayedCall(1000, () => {
+                            // Only create a new bomb if there isn't one
+                            if (!this.bomb || this.bomb.isSticky) {
+                                this.createBomb(this.currentBombType);
+                            }
+                        });
+                    }
+                });
+            }
+            
+            handleBlastBomb(x, y) {
+                console.log("Blast bomb exploding at", x, y);
+                
+                // Create explosion effect
+                const explosion = this.add.circle(x, y, 80, 0xff5500, 0.8);
+                explosion.setDepth(6);
+                
+                // Animate the explosion
+                this.tweens.add({
+                    targets: explosion,
+                    alpha: 0,
+                    scale: 2,
+                    duration: 300,
+                    ease: 'Power2',
+                    onComplete: () => {
+                        explosion.destroy();
+                    }
+                });
+                
+                // Add particles
+                const particles = this.add.particles('particle');
+                particles.setDepth(6);
+                
+                const emitter = particles.createEmitter({
+                    speed: { min: 100, max: 300 },
+                    scale: { start: 1, end: 0 },
+                    alpha: { start: 1, end: 0 },
+                    lifespan: 800,
+                    blendMode: 'ADD',
+                    tint: 0xff5500
+                });
+                
+                // Emit particles
+                emitter.explode(50, x, y);
+                
+                // Clean up
+                this.time.delayedCall(800, () => {
+                    particles.destroy();
+                });
+                
+                // Add camera shake
+                this.cameras.main.shake(300, 0.01);
+                
+                // Play sound
+                this.sound.play('explosion', { volume: 0.5 });
+                
+                // Check for nearby sticky bombs to trigger
+                this.triggerStickyBomb(x, y, 200);
+            }
+            
+            handleStickyBomb(x, y, block) {
+                console.log("Sticky bomb attached at", x, y);
+                
+                // Create visual effect
+                const stickyEffect = this.add.circle(x, y, 30, 0xff99ff, 0.5);
+                stickyEffect.setDepth(15);
+                
+                // Animate the effect
+                this.tweens.add({
+                    targets: stickyEffect,
+                    alpha: 0.2,
+                    scale: 1.2,
+                    duration: 800,
+                    ease: 'Sine.easeInOut',
+                    yoyo: true,
+                    repeat: -1
+                });
+                
+                // Add particles
+                const particles = this.add.particles('sticky_particle');
+                const emitter = particles.createEmitter({
+                    speed: { min: 10, max: 50 },
+                    scale: { start: 0.5, end: 0 },
+                    alpha: { start: 0.7, end: 0 },
+                    lifespan: 1000,
+                    blendMode: 'ADD',
+                    tint: 0xff99ff,
+                    frequency: 500,
+                    quantity: 2
+                });
+                
+                // Set emission point
+                emitter.setPosition(x, y);
+                
+                // Fix the bomb in place
+                if (this.bomb) {
+                    this.bomb.setStatic(true);
+                    this.bomb.setPosition(x, y);
+                    this.bomb.isSticky = true;
+                }
+                
+                // Create sticky bomb object
+                const stickyBomb = {
+                    x: x,
+                    y: y,
+                    isActive: true,
+                    visualEffect: stickyEffect,
+                    particles: particles,
+                    emitter: emitter,
+                    bombSprite: this.bomb,
+                    explosionRadius: 200,
+                    isSticky: true,
+                    createdAt: Date.now()
+                };
+                
+                // Add to tracking array
+                this.activeStickyBombs.push(stickyBomb);
+                
+                // Play sound
+                this.sound.play('explosion', { volume: 0.2, rate: 1.5 });
+                
+                // Create status text
+                const statusText = this.add.text(
+                    x, y - 50, 
+                    "STICKY BOMB ATTACHED\nWaiting for trigger...", 
+                    { 
+                        fontFamily: 'Arial', 
+                        fontSize: '18px', 
+                        fill: '#ffccff',
+                        stroke: '#000000',
+                        strokeThickness: 3,
+                        align: 'center'
+                    }
+                ).setOrigin(0.5).setDepth(20);
+                
+                // Fade out status text
+                this.tweens.add({
+                    targets: statusText,
+                    alpha: 0,
+                    y: '-=30',
+                    duration: 3000,
+                    onComplete: () => {
+                        statusText.destroy();
+                    }
+                });
+                
+                return stickyBomb;
+            }
+            
+            triggerStickyBomb(x, y, radius) {
+                if (!this.activeStickyBombs || this.activeStickyBombs.length === 0) return;
+                
+                console.log(`Checking for sticky bombs near (${x}, ${y}) with radius ${radius}`);
+                
+                // Find sticky bombs in radius
+                const triggeredBombs = [];
+                
+                this.activeStickyBombs.forEach(bomb => {
+                    if (!bomb.isActive) return;
+                    
+                    const distance = Phaser.Math.Distance.Between(x, y, bomb.x, bomb.y);
+                    if (distance < radius) {
+                        triggeredBombs.push(bomb);
+                        bomb.isActive = false;
+                        
+                        console.log(`Triggered sticky bomb at (${bomb.x}, ${bomb.y})`);
+                    }
+                });
+                
+                // Process triggered bombs
+                triggeredBombs.forEach(bomb => {
+                    // Create explosion with delay
+                    this.time.delayedCall(300, () => {
+                        // Create explosion effect
+                        const explosion = this.add.circle(bomb.x, bomb.y, 120, 0xff77cc, 0.8);
+                        explosion.setDepth(6);
+                        
+                        // Animate the explosion
+                        this.tweens.add({
+                            targets: explosion,
+                            alpha: 0,
+                            scale: 3,
+                            duration: 500,
+                            ease: 'Power2',
+                            onComplete: () => {
+                                explosion.destroy();
+                            }
+                        });
+                        
+                        // Add particles
+                        const particles = this.add.particles('particle');
+                        particles.setDepth(6);
+                        
+                        const emitter = particles.createEmitter({
+                            speed: { min: 80, max: 250 },
+                            scale: { start: 1.5, end: 0 },
+                            alpha: { start: 1, end: 0 },
+                            lifespan: 1000,
+                            blendMode: 'ADD',
+                            tint: 0xff77cc
+                        });
+                        
+                        // Emit particles
+                        emitter.explode(50, bomb.x, bomb.y);
+                        
+                        // Add flash
+                        const flash = this.add.circle(bomb.x, bomb.y, 150, 0xffffff, 1);
+                        flash.setDepth(6);
+                        this.tweens.add({
+                            targets: flash,
+                            alpha: 0,
+                            duration: 300,
+                            onComplete: () => {
+                                flash.destroy();
+                            }
+                        });
+                        
+                        // Clean up particles
+                        this.time.delayedCall(1000, () => {
+                            particles.destroy();
+                        });
+                        
+                        // Add camera shake
+                        this.cameras.main.shake(400, 0.015);
+                        
+                        // Play sound
+                        this.sound.play('explosion', { volume: 0.6, rate: 0.6 });
+                        
+                        // Clean up sticky bomb resources
+                        if (bomb.visualEffect && bomb.visualEffect.scene) {
+                            bomb.visualEffect.destroy();
+                        }
+                        
+                        if (bomb.particles && bomb.particles.scene) {
+                            bomb.particles.destroy();
+                        }
+                        
+                        if (bomb.bombSprite && bomb.bombSprite.scene) {
+                            bomb.bombSprite.destroy();
+                        }
+                        
+                        if (bomb.emitter) {
+                            bomb.emitter.stop();
+                        }
+                        
+                        // Status message
+                        const statusText = this.add.text(
+                            bomb.x, bomb.y - 50, 
+                            "STICKY BOMB TRIGGERED!", 
+                            { 
+                                fontFamily: 'Arial', 
+                                fontSize: '24px', 
+                                fill: '#ffff00',
+                                stroke: '#000000',
+                                strokeThickness: 4,
+                                align: 'center'
+                            }
+                        ).setOrigin(0.5).setDepth(20);
+                        
+                        // Fade out status text
+                        this.tweens.add({
+                            targets: statusText,
+                            alpha: 0,
+                            y: '-=50',
+                            duration: 2000,
+                            onComplete: () => {
+                                statusText.destroy();
+                            }
+                        });
+                    });
+                });
+                
+                // Remove triggered bombs from active array
+                if (triggeredBombs.length > 0) {
+                    this.activeStickyBombs = this.activeStickyBombs.filter(bomb => 
+                        !triggeredBombs.includes(bomb)
+                    );
+                }
+                
+                return triggeredBombs.length > 0;
+            }
+            
+            update() {
+                // Check for out-of-bounds bomb
+                if (this.bomb && this.bombState.active) {
+                    const bombX = this.bomb.x;
+                    const bombY = this.bomb.y;
+                    
+                    // If bomb is out of bounds, destroy it and create a new one
+                    if (bombX < -100 || bombX > this.cameras.main.width + 100 ||
+                        bombY < -100 || bombY > this.cameras.main.height + 100) {
+                        
+                        console.log("Bomb went out of bounds");
+                        
+                        if (this.bomb && this.bomb.scene) {
+                            this.bomb.destroy();
+                        }
+                        
+                        this.bomb = null;
+                        this.bombState.active = false;
+                        
+                        // Create new bomb after a delay
+                        this.time.delayedCall(1000, () => {
+                            this.createBomb(this.currentBombType);
+                        });
+                    }
+                }
+                
+                // Update sticky bomb visuals if needed
+                if (this.activeStickyBombs && this.activeStickyBombs.length > 0) {
+                    this.activeStickyBombs.forEach(bomb => {
+                        if (bomb.emitter && bomb.emitter.manager && bomb.emitter.manager.scene) {
+                            bomb.emitter.setPosition(bomb.x, bomb.y);
+                        }
+                    });
+                }
+            }
+        }
+
+        // Configure game
+        const config = {
+            type: Phaser.AUTO,
+            width: 1920,
+            height: 1080,
+            parent: 'game-container',
+            backgroundColor: '#000000',
+            scale: {
+                mode: Phaser.Scale.FIT,
+                autoCenter: Phaser.Scale.CENTER_BOTH
+            },
+            physics: {
+                default: 'matter',
+                matter: {
+                    debug: false,
+                    gravity: { y: 1 }
+                }
+            },
+            scene: [StickyBombTestScene]
+        };
+
+        // Create the game
+        const game = new Phaser.Game(config);
+    </script>
+</body>
+</html> 

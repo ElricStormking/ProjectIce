@@ -1,0 +1,445 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Driller Bomb Test</title>
+    <script src="../../js/lib/phaser.min.js"></script>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            background-color: #222;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            min-height: 100vh;
+            font-family: Arial, sans-serif;
+            color: white;
+        }
+        canvas {
+            display: block;
+            margin: 0 auto;
+        }
+        h1 {
+            color: #ff9900;
+            text-align: center;
+        }
+        .controls {
+            margin: 20px;
+            text-align: center;
+            background-color: rgba(0,0,0,0.5);
+            padding: 10px;
+            border-radius: 10px;
+        }
+        button {
+            background-color: #ff9900;
+            border: none;
+            color: white;
+            padding: 10px 20px;
+            font-size: 16px;
+            margin: 10px;
+            cursor: pointer;
+            border-radius: 5px;
+        }
+        #status {
+            font-size: 18px;
+            margin: 10px;
+            color: #00ff00;
+        }
+    </style>
+</head>
+<body>
+    <h1>Driller Bomb Test</h1>
+    
+    <div class="controls">
+        <button id="launch">Launch Driller Bomb</button>
+        <button id="reset">Reset Test</button>
+        <div id="status">Ready to test</div>
+    </div>
+    
+    <div id="game-container"></div>
+    
+    <script>
+        // Test game configuration
+        const config = {
+            type: Phaser.AUTO,
+            width: 800,
+            height: 600,
+            backgroundColor: '#1a4674',
+            parent: 'game-container',
+            physics: {
+                default: 'matter',
+                matter: {
+                    gravity: { y: 0.2 },
+                    debug: true
+                }
+            },
+            scene: {
+                preload: preload,
+                create: create,
+                update: update
+            }
+        };
+        
+        // Create the game instance
+        const game = new Phaser.Game(config);
+        
+        // Global variables
+        let bomb;
+        let blocks = [];
+        let drillerBomb = null;
+        let statusText;
+        let bombUtils;
+        let debugText;
+        
+        function preload() {
+            // Load bomb assets
+            this.load.image('driller_bomb', '../../assets/images/bombs/driller_bomb.png');
+            this.load.image('particle', '../../assets/images/particle.png');
+            this.load.image('explosion', '../../assets/images/explosion.png');
+        }
+        
+        function create() {
+            statusText = document.getElementById('status');
+            
+            // Create BombUtils - simplified version for testing
+            bombUtils = {
+                scene: this,
+                handleDrillerBomb: function(x, y, block, velocityX, velocityY) {
+                    statusText.textContent = `Driller effect started at ${x.toFixed(0)}, ${y.toFixed(0)}`;
+                    statusText.style.color = '#00ff00';
+                    
+                    // Log the velocity 
+                    console.log(`Driller velocity: ${velocityX}, ${velocityY}`);
+                    
+                    // Create a driller effect as visual indicator
+                    const drillerEffect = this.scene.add.circle(x, y, 25, 0xBB5500, 0.7);
+                    
+                    // Create a particles effect
+                    const particles = this.scene.add.particles('particle');
+                    const emitter = particles.createEmitter({
+                        speed: { min: 10, max: 30 },
+                        scale: { start: 0.3, end: 0 },
+                        alpha: { start: 0.7, end: 0 },
+                        lifespan: 800,
+                        blendMode: 'ADD',
+                        tint: 0xBB5500,
+                        frequency: 100,
+                        quantity: 2
+                    });
+                    
+                    // Set particle emission point
+                    emitter.setPosition(x, y);
+                    
+                    // Keep track of drilling position
+                    let currentX = x;
+                    let currentY = y;
+                    let directionX = velocityX > 0 ? 1 : -1;
+                    let directionY = velocityY > 0 ? 1 : -1;
+                    
+                    // Create driller bomb object
+                    drillerBomb = {
+                        x: x,
+                        y: y,
+                        effect: drillerEffect,
+                        particles: particles,
+                        emitter: emitter,
+                        directionX: directionX,
+                        directionY: directionY,
+                        velocityX: velocityX,
+                        velocityY: velocityY,
+                        isActive: true,
+                        bombSprite: bomb
+                    };
+                    
+                    // Start drilling animation
+                    const drillInterval = this.scene.time.addEvent({
+                        delay: 100,
+                        callback: () => {
+                            if (!drillerBomb.isActive) return;
+                            
+                            // Update position
+                            currentX += directionX * 5;
+                            currentY += directionY * 5;
+                            
+                            // Update visuals
+                            drillerEffect.setPosition(currentX, currentY);
+                            emitter.setPosition(currentX, currentY);
+                            if (bomb && bomb.active) {
+                                bomb.setPosition(currentX, currentY);
+                            }
+                            
+                            // Check for collisions with blocks
+                            blocks.forEach(block => {
+                                const distance = Phaser.Math.Distance.Between(
+                                    currentX, currentY, block.x, block.y);
+                                    
+                                if (distance < 40 && block.active) {
+                                    // Destroy block
+                                    const explosion = this.scene.add.circle(
+                                        block.x, block.y, 20, 0xff0000, 0.7);
+                                        
+                                    this.scene.tweens.add({
+                                        targets: explosion,
+                                        alpha: 0,
+                                        scale: 2,
+                                        duration: 300,
+                                        onComplete: () => { explosion.destroy(); }
+                                    });
+                                    
+                                    block.destroy();
+                                    
+                                    // Update status
+                                    statusText.textContent = `Driller destroyed block at ${block.x.toFixed(0)}, ${block.y.toFixed(0)}`;
+                                }
+                            });
+                            
+                            // Check if drilling should end (edge of screen)
+                            if (currentX < 0 || currentX > 800 || currentY < 0 || currentY > 600) {
+                                drillerBomb.isActive = false;
+                                statusText.textContent = 'Drilling completed (reached edge)';
+                                drillInterval.remove();
+                                
+                                // Optional: cleanup resources
+                                this.scene.time.delayedCall(2000, () => {
+                                    if (drillerEffect.active) drillerEffect.destroy();
+                                    if (particles.active) particles.destroy();
+                                });
+                            }
+                        },
+                        callbackScope: this,
+                        repeat: -1
+                    });
+                    
+                    drillerBomb.interval = drillInterval;
+                    
+                    return drillerBomb;
+                },
+                
+                createDrillerExplosion: function(x, y) {
+                    // Create explosion visual
+                    const explosion = this.scene.add.sprite(x, y, 'explosion');
+                    explosion.setScale(0.5);
+                    explosion.setAlpha(0.8);
+                    
+                    // Animate explosion
+                    this.scene.tweens.add({
+                        targets: explosion,
+                        alpha: 0,
+                        scale: 2,
+                        duration: 500,
+                        onComplete: () => { explosion.destroy(); }
+                    });
+                    
+                    // Update status
+                    statusText.textContent = 'Driller explosion created';
+                }
+            };
+            
+            // Create UI elements
+            debugText = this.add.text(10, 10, 'Ready to test driller bombs', { 
+                font: '16px Arial', 
+                fill: '#ffffff' 
+            });
+            
+            // Create ice blocks to drill through
+            createBlocks(this);
+            
+            // Bomb type constants for testing
+            this.BOMB_TYPES = {
+                DRILLER: 'driller_bomb'
+            };
+            
+            // Create buttons
+            document.getElementById('launch').addEventListener('click', () => launchBomb(this));
+            document.getElementById('reset').addEventListener('click', () => resetTest(this));
+        }
+        
+        function update() {
+            // Update debug text
+            if (debugText && bomb) {
+                const info = bomb.body ? 
+                    `Bomb: ${bomb.x.toFixed(0)}, ${bomb.y.toFixed(0)} | ` +
+                    `Velocity: ${bomb.body.velocity.x.toFixed(2)}, ${bomb.body.velocity.y.toFixed(2)} | ` +
+                    `isDriller: ${bomb.isDriller || false} | ` +
+                    `Blocks left: ${blocks.filter(b => b.active).length}` :
+                    'No active bomb';
+                    
+                debugText.setText(info);
+            }
+            
+            // Update driller bomb
+            if (drillerBomb && drillerBomb.isActive) {
+                if (drillerBomb.emitter) {
+                    drillerBomb.emitter.setPosition(drillerBomb.x, drillerBomb.y);
+                }
+                if (drillerBomb.effect && drillerBomb.effect.active) {
+                    drillerBomb.effect.setPosition(drillerBomb.x, drillerBomb.y);
+                }
+            }
+        }
+        
+        function createBlocks(scene) {
+            // Clear existing blocks
+            blocks.forEach(block => {
+                if (block.active) block.destroy();
+            });
+            blocks = [];
+            
+            // Create a pattern of blocks to drill through
+            const blockSize = 60;
+            const startX = 400;
+            const startY = 300;
+            
+            // Create a zigzag pattern
+            for (let i = 0; i < 8; i++) {
+                const x = startX + (i % 2 === 0 ? 50 : -50);
+                const y = startY + i * blockSize;
+                
+                const block = scene.matter.add.rectangle(x, y, blockSize, blockSize, {
+                    isStatic: true,
+                    chamfer: { radius: 10 }
+                });
+                
+                // Add a visual for the block
+                const visual = scene.add.rectangle(x, y, blockSize, blockSize, 0x3399ff, 0.8);
+                visual.setStrokeStyle(2, 0x0066cc);
+                
+                // Link visual to physics body
+                block.visual = visual;
+                block.blockIndex = i;
+                
+                block.destroy = function() {
+                    this.visual.destroy();
+                    scene.matter.world.remove(this);
+                    this.active = false;
+                };
+                
+                blocks.push(block);
+            }
+            
+            // Also add a horizontal row
+            for (let i = 0; i < 5; i++) {
+                const x = startX + (i * blockSize) - 120;
+                const y = startY + 200;
+                
+                const block = scene.matter.add.rectangle(x, y, blockSize, blockSize, {
+                    isStatic: true,
+                    chamfer: { radius: 10 }
+                });
+                
+                // Add a visual for the block
+                const visual = scene.add.rectangle(x, y, blockSize, blockSize, 0x33cc66, 0.8);
+                visual.setStrokeStyle(2, 0x009933);
+                
+                // Link visual to physics body
+                block.visual = visual;
+                block.blockIndex = i + 10;
+                
+                block.destroy = function() {
+                    this.visual.destroy();
+                    scene.matter.world.remove(this);
+                    this.active = false;
+                };
+                
+                blocks.push(block);
+            }
+            
+            statusText.textContent = `Created ${blocks.length} blocks`;
+        }
+        
+        function launchBomb(scene) {
+            // Clean up existing bomb
+            if (bomb) {
+                if (bomb.active) bomb.destroy();
+                bomb = null;
+            }
+            
+            // Clean up existing driller bomb
+            if (drillerBomb && drillerBomb.isActive) {
+                if (drillerBomb.interval) drillerBomb.interval.remove();
+                if (drillerBomb.effect && drillerBomb.effect.active) drillerBomb.effect.destroy();
+                if (drillerBomb.particles && drillerBomb.particles.active) drillerBomb.particles.destroy();
+                drillerBomb.isActive = false;
+            }
+            
+            // Create a new bomb
+            bomb = scene.matter.add.image(100, 100, 'driller_bomb', null, {
+                restitution: 0.8,
+                friction: 0.05,
+                density: 0.0005
+            });
+            
+            bomb.setCircle(30);
+            bomb.setScale(0.6);
+            bomb.bombType = 'driller_bomb';
+            bomb.isDriller = true;
+            
+            // Launch with random velocity
+            const velocityX = 5 + Math.random() * 3;
+            const velocityY = 1 + Math.random() * 2;
+            
+            // Store velocity on the bomb (for driller functionality)
+            bomb.storedVelocityX = velocityX;
+            bomb.storedVelocityY = velocityY;
+            
+            scene.matter.body.setVelocity(bomb.body, { x: velocityX, y: velocityY });
+            
+            // Add collision handler for this bomb
+            scene.matter.world.on('collisionstart', (event) => {
+                const pairs = event.pairs;
+                
+                // Process each collision pair
+                for (let i = 0; i < pairs.length; i++) {
+                    const bodyA = pairs[i].bodyA;
+                    const bodyB = pairs[i].bodyB;
+                    
+                    // Find the collision between our bomb and a block
+                    if ((bodyA === bomb.body && blocks.some(b => b.body === bodyB)) ||
+                        (bodyB === bomb.body && blocks.some(b => b.body === bodyA))) {
+                        
+                        // Find which body is the block
+                        const blockBody = bodyA === bomb.body ? bodyB : bodyA;
+                        const block = blocks.find(b => b.body === blockBody);
+                        
+                        // Get velocity before collision
+                        const velX = bomb.storedVelocityX || bomb.body.velocity.x;
+                        const velY = bomb.storedVelocityY || bomb.body.velocity.y;
+                        
+                        // Activate driller bomb
+                        if (bomb.isDriller && !drillerBomb) {
+                            bomb.setStatic(true);
+                            bombUtils.handleDrillerBomb(bomb.x, bomb.y, block, velX, velY);
+                        }
+                    }
+                }
+            });
+            
+            statusText.textContent = 'Bomb launched!';
+            statusText.style.color = '#ffffff';
+        }
+        
+        function resetTest(scene) {
+            // Cleanup
+            if (bomb && bomb.active) bomb.destroy();
+            bomb = null;
+            
+            if (drillerBomb && drillerBomb.isActive) {
+                if (drillerBomb.interval) drillerBomb.interval.remove();
+                if (drillerBomb.effect && drillerBomb.effect.active) drillerBomb.effect.destroy();
+                if (drillerBomb.particles && drillerBomb.particles.active) drillerBomb.particles.destroy();
+                drillerBomb.isActive = false;
+            }
+            drillerBomb = null;
+            
+            // Recreate blocks
+            createBlocks(scene);
+            
+            statusText.textContent = 'Test reset and ready';
+            statusText.style.color = '#00ff00';
+        }
+    </script>
+</body>
+</html> 

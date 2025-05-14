@@ -1,0 +1,149 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Image Loading Debug</title>
+    <style>
+        body {
+            background-color: #f0f0f0;
+            font-family: Arial, sans-serif;
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        .image-container {
+            margin: 20px 0;
+            padding: 10px;
+            border: 1px solid #ccc;
+            background-color: white;
+        }
+        h1, h2 {
+            color: #333;
+        }
+        .status {
+            margin-top: 10px;
+            font-weight: bold;
+        }
+        .success {
+            color: green;
+        }
+        .error {
+            color: red;
+        }
+        img {
+            max-width: 100%;
+            height: auto;
+            display: block;
+            margin: 10px 0;
+            border: 2px solid #ddd;
+        }
+    </style>
+</head>
+<body>
+    <h1>Image Loading Debug Tool</h1>
+    <p>This page tests loading of critical game images directly.</p>
+
+    <div class="image-container">
+        <h2>Level 1 Background (background1.png)</h2>
+        <img id="bg1" src="assets/images/level1/background1.png" alt="Level 1 Background" onerror="imageError('bg1')" onload="imageSuccess('bg1')">
+        <div id="bg1-status" class="status"></div>
+        <div id="bg1-info"></div>
+    </div>
+
+    <div class="image-container">
+        <h2>Level 2 Background (background2.png)</h2>
+        <img id="bg2" src="assets/images/level2/background2.png" alt="Level 2 Background" onerror="imageError('bg2')" onload="imageSuccess('bg2')">
+        <div id="bg2-status" class="status"></div>
+        <div id="bg2-info"></div>
+    </div>
+
+    <div class="image-container">
+        <h2>Level 1 Character (chibi_girl1.png)</h2>
+        <img id="chibi1" src="assets/images/level1/chibi_girl1.png" alt="Level 1 Character" onerror="imageError('chibi1')" onload="imageSuccess('chibi1')">
+        <div id="chibi1-status" class="status"></div>
+        <div id="chibi1-info"></div>
+    </div>
+
+    <div class="image-container">
+        <h2>Level 2 Character (chibi_girl2.png)</h2>
+        <img id="chibi2" src="assets/images/level2/chibi_girl2.png" alt="Level 2 Character" onerror="imageError('chibi2')" onload="imageSuccess('chibi2')">
+        <div id="chibi2-status" class="status"></div>
+        <div id="chibi2-info"></div>
+    </div>
+
+    <div class="image-container">
+        <h2>Default Background (background.png)</h2>
+        <img id="defaultBg" src="assets/images/background.png" alt="Default Background" onerror="imageError('defaultBg')" onload="imageSuccess('defaultBg')">
+        <div id="defaultBg-status" class="status"></div>
+        <div id="defaultBg-info"></div>
+    </div>
+
+    <div class="image-container">
+        <h2>Fetch API Test</h2>
+        <button onclick="fetchTest()">Run Fetch Tests</button>
+        <div id="fetch-status" class="status"></div>
+        <pre id="fetch-results"></pre>
+    </div>
+
+    <script>
+        function imageError(id) {
+            document.getElementById(`${id}-status`).innerHTML = 'FAILED TO LOAD';
+            document.getElementById(`${id}-status`).className = 'status error';
+            document.getElementById(`${id}-info`).innerHTML = 'Image could not be loaded. Check the path and file permissions.';
+        }
+
+        function imageSuccess(id) {
+            const img = document.getElementById(id);
+            document.getElementById(`${id}-status`).innerHTML = 'LOADED SUCCESSFULLY';
+            document.getElementById(`${id}-status`).className = 'status success';
+            document.getElementById(`${id}-info`).innerHTML = `Dimensions: ${img.naturalWidth} x ${img.naturalHeight}`;
+        }
+
+        async function fetchTest() {
+            const fetchStatus = document.getElementById('fetch-status');
+            const fetchResults = document.getElementById('fetch-results');
+            
+            fetchStatus.innerHTML = 'Running tests...';
+            fetchStatus.className = 'status';
+            
+            const urls = [
+                'assets/images/level1/background1.png',
+                'assets/images/level2/background2.png',
+                'assets/images/level1/chibi_girl1.png',
+                'assets/images/level2/chibi_girl2.png',
+                'assets/images/background.png'
+            ];
+            
+            let results = '';
+            
+            for (const url of urls) {
+                try {
+                    const start = Date.now();
+                    const response = await fetch(url, { method: 'HEAD' });
+                    const end = Date.now();
+                    
+                    results += `${url}: ${response.status} ${response.statusText}\n`;
+                    results += `  Time: ${end - start}ms\n`;
+                    
+                    if (response.ok) {
+                        const headers = {};
+                        for (const [key, value] of response.headers.entries()) {
+                            headers[key] = value;
+                        }
+                        results += `  Headers: ${JSON.stringify(headers, null, 2)}\n`;
+                    }
+                } catch (error) {
+                    results += `${url}: FETCH ERROR - ${error.message}\n`;
+                }
+                
+                results += '\n';
+            }
+            
+            fetchResults.textContent = results;
+            fetchStatus.innerHTML = 'Tests completed';
+            fetchStatus.className = 'status success';
+        }
+    </script>
+</body>
+</html> 

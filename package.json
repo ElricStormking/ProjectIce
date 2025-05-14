@@ -1,0 +1,38 @@
+{
+  "name": "beauty-ice-breaker",
+  "version": "1.0.0",
+  "description": "A Phaser-based game where players use a slingshot to launch bombs at ice blocks covering a character silhouette",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "test": "jest",
+    "test:audio": "jest --passWithNoTests --testEnvironment=jsdom test/audio/AudioManagerTest.js"
+  },
+  "keywords": [
+    "game",
+    "phaser",
+    "physics",
+    "puzzle"
+  ],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "express": "^4.18.2"
+  },
+  "devDependencies": {
+    "jest": "^29.7.0",
+    "jest-environment-jsdom": "^29.7.0"
+  },
+  "jest": {
+    "testEnvironment": "jsdom",
+    "moduleFileExtensions": [
+      "js"
+    ],
+    "moduleDirectories": [
+      "node_modules"
+    ],
+    "setupFiles": [
+      "./test/setup.js"
+    ]
+  }
+}

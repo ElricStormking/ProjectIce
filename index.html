@@ -1,0 +1,175 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <!-- Empty favicon to prevent browser from requesting favicon.ico -->
+    <link rel="icon" href="data:,">
+    <!-- Force file:// protocol for local resources -->
+    <base href="./">
+    <title>Beauty Ice Breaker</title>
+    <style>
+        html {
+            touch-action: manipulation; /* Disable double-tap zoom */
+        }
+        body {
+            margin: 0;
+            padding: 0;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            background-color: #333;
+            height: 100vh;
+            width: 100vw;
+            overflow: hidden;
+            -webkit-touch-callout: none; /* Prevent callout to copy image */
+            -webkit-user-select: none;   /* Disable user select */
+            -khtml-user-select: none;    /* Disable user select */
+            -moz-user-select: none;      /* Disable user select */
+            -ms-user-select: none;       /* Disable user select */
+            user-select: none;           /* Disable user select */
+        }
+        #game-container {
+            width: 1920px;
+            height: 1080px;
+            max-width: 100%;
+            max-height: 100%;
+            position: relative;
+            touch-action: none; /* Disable browser handling of all gestures */
+        }
+        canvas {
+            display: block;
+            width: 100%;
+            height: 100%;
+            object-fit: contain;
+        }
+        /* Add loading indicator */
+        #loading-screen {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-color: #000;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            flex-direction: column;
+            color: white;
+            font-family: Arial, sans-serif;
+            z-index: 100;
+        }
+        #loading-screen.hidden {
+            display: none;
+        }
+        .spinner {
+            border: 8px solid rgba(255, 255, 255, 0.1);
+            border-top: 8px solid #fff;
+            border-radius: 50%;
+            width: 60px;
+            height: 60px;
+            animation: spin 1s linear infinite;
+            margin-bottom: 20px;
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+    </style>
+</head>
+<body>
+    <!-- Loading screen -->
+    <div id="loading-screen">
+        <div class="spinner"></div>
+        <h2>Loading Game...</h2>
+        <p>Touch and drag to aim - release to shoot!</p>
+    </div>
+    
+    <div id="game-container"></div>
+    
+    <!-- Use local path for Phaser -->
+    <script src="./js/lib/phaser.min.js"></script>
+    <script src="./js/scenes/BootScene.js"></script>
+    <script src="./js/scenes/MainMenuScene.js"></script>
+    <script src="./js/scenes/LoadingScene.js"></script>
+    <!-- Load modular files -->
+    <script src="./js/BombTypes.js"></script>
+    <script src="./js/VisualEffects.js"></script>
+    <script src="./js/managers/BlockManager.js"></script>
+    <script src="./js/BlockTypes.js"></script>
+    <script src="./js/BlockUtils.js"></script>
+    <script src="./js/BombUtils.js"></script>
+    <script src="./js/BombInputHandler.js"></script>
+    <script src="./js/managers/GameStateManager.js"></script>
+    <script src="./js/LevelManager.js"></script>
+    <script src="./js/BombLauncher.js"></script>
+    <script src="./js/managers/AudioManager.js"></script>
+    <script src="./js/scenes/UIScene.js"></script>
+    <script src="./js/scenes/GameScene.js"></script>
+    <script src="./js/game.js"></script>
+    <script src="./js/managers/CollisionManager.js"></script>
+    <script>
+        // Remove loading screen when game is ready
+        window.addEventListener('load', function() {
+            // Hide loading screen after a small delay
+            setTimeout(function() {
+                document.getElementById('loading-screen').classList.add('hidden');
+            }, 1000);
+            
+            // Detect touch capabilities
+            const isTouchDevice = ('ontouchstart' in window) || 
+                                (navigator.maxTouchPoints > 0) || 
+                                (navigator.msMaxTouchPoints > 0);
+            
+            console.log('Touch device detected:', isTouchDevice);
+            console.log('Touch points available:', navigator.maxTouchPoints);
+            console.log('User agent:', navigator.userAgent);
+            
+            // Set up touch debugging if needed
+            if (isTouchDevice) {
+                // Add a debug helper that shows touch points (only in debug mode)
+                const urlParams = new URLSearchParams(window.location.search);
+                if (urlParams.has('debug')) {
+                    console.log('Touch debugging enabled');
+                    
+                    // Create touch visualization element
+                    const touchDebug = document.createElement('div');
+                    touchDebug.id = 'touch-debug';
+                    touchDebug.style.position = 'absolute';
+                    touchDebug.style.top = '10px';
+                    touchDebug.style.left = '10px';
+                    touchDebug.style.color = 'white';
+                    touchDebug.style.background = 'rgba(0,0,0,0.5)';
+                    touchDebug.style.padding = '5px';
+                    touchDebug.style.zIndex = '9999';
+                    touchDebug.style.pointerEvents = 'none';
+                    document.body.appendChild(touchDebug);
+                    
+                    // Track and display touch events
+                    document.addEventListener('touchstart', function(e) {
+                        touchDebug.textContent = `Touch start: ${e.touches.length} touches`;
+                        e.preventDefault(); // Prevent default to ensure our game gets all events
+                    }, {passive: false});
+                    
+                    document.addEventListener('touchmove', function(e) {
+                        touchDebug.textContent = `Touch move: ${e.touches.length} touches, ${e.touches[0].clientX.toFixed(0)},${e.touches[0].clientY.toFixed(0)}`;
+                        e.preventDefault();
+                    }, {passive: false});
+                    
+                    document.addEventListener('touchend', function(e) {
+                        touchDebug.textContent = `Touch end: ${e.touches.length} remaining`;
+                    }, {passive: false});
+                }
+            }
+        });
+        
+        // Prevent scrolling on mobile devices
+        document.addEventListener('touchmove', function(e) {
+            e.preventDefault();
+        }, { passive: false });
+    </script>
+</body>
+</html> 

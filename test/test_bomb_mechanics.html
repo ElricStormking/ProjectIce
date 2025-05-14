@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Bomb Mechanics Tests</title>
+    <!-- Optional: Include Sinon.js for better mocking -->
+    <!-- <script src="https://unpkg.com/sinon@9.2.4/pkg/sinon.js"></script> -->
+    <script src="../js/lib/phaser.min.js"></script> <!-- Assuming Phaser is needed by the utils -->
+    <script src="../js/BombTypes.js"></script>
+    <script src="../js/managers/LevelManager.js"></script> 
+    <script src="../js/managers/GameStateManager.js"></script>
+    <script src="../js/managers/BombManager.js"></script>
+    <script src="../js/BlockUtils.js"></script>
+    <script src="../js/BombUtils.js"></script>
+    <script src="bomb_mechanics.test.js"></script>
+</head>
+<body>
+    <h1>Bomb Mechanics Test Runner</h1>
+    <p>Open the browser console to see test results.</p>
+
+    <script>
+        window.onload = () => {
+            console.log("Window loaded, ensuring classes are available...");
+            if (typeof BombManager !== 'undefined' && 
+                typeof BlockUtils !== 'undefined' && 
+                typeof BombUtils !== 'undefined' &&
+                typeof BombTypes !== 'undefined') {
+                console.log("Required classes found. Running tests...");
+                // For testing before refactoring, BombManager might not have the methods yet.
+                // The test runner will try to call methods on mockScene.bombUtils if not on BombManager.
+                runAllBombTests(null); 
+            } else {
+                let missing = [];
+                if (typeof BombManager === 'undefined') missing.push("BombManager");
+                if (typeof BlockUtils === 'undefined') missing.push("BlockUtils");
+                if (typeof BombUtils === 'undefined') missing.push("BombUtils");
+                if (typeof BombTypes === 'undefined') missing.push("BombTypes");
+                console.error("One or more required classes not found: " + missing.join(', ') + ". Ensure scripts are loaded in the correct order.");
+            }
+        };
+    </script>
+</body>
+</html> 

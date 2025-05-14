@@ -1,0 +1,188 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>GameStateManager Test</title>
+    <script src="./js/lib/phaser.min.js"></script>
+    <script src="./js/managers/GameStateManager.js"></script>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            background-color: #333;
+            height: 100vh;
+            width: 100vw;
+            overflow: hidden;
+            font-family: Arial, sans-serif;
+            color: white;
+        }
+        #output {
+            background-color: #222;
+            padding: 20px;
+            border-radius: 5px;
+            width: 80%;
+            max-width: 600px;
+            height: 300px;
+            overflow-y: auto;
+            font-family: monospace;
+        }
+    </style>
+</head>
+<body>
+    <div id="output"></div>
+
+    <script>
+        // Create output function
+        function log(message) {
+            const output = document.getElementById('output');
+            output.innerHTML += message + '<br>';
+            output.scrollTop = output.scrollHeight;
+        }
+
+        log('Testing GameStateManager...');
+
+        // Create a mock scene to pass to GameStateManager
+        const mockScene = {
+            add: {
+                text: (x, y, text, style) => {
+                    log(`Mock text created: "${text}" at (${x}, ${y})`);
+                    return {
+                        setOrigin: () => ({ setDepth: () => ({}) }),
+                        setDepth: () => ({})
+                    };
+                },
+                container: () => ({ setDepth: () => ({ add: () => {} }) }),
+                particles: () => ({
+                    setDepth: () => ({}),
+                    createEmitter: () => ({ explode: () => {} })
+                }),
+                image: (x, y, key) => {
+                    log(`Mock image created: ${key} at (${x}, ${y})`);
+                    return {
+                        setDisplaySize: () => ({}),
+                        setAlpha: () => ({}),
+                        setDepth: () => ({})
+                    };
+                }
+            },
+            cameras: {
+                main: {
+                    centerX: 960,
+                    centerY: 540,
+                    width: 1920,
+                    height: 1080,
+                    flash: () => {}
+                }
+            },
+            tweens: {
+                add: (config) => {
+                    log(`Mock tween created with duration: ${config.duration}`);
+                }
+            },
+            time: {
+                delayedCall: (delay, callback) => {
+                    log(`Mock delayed call created with delay: ${delay}ms`);
+                    // Simulate the delay and call the callback
+                    setTimeout(callback, 100); // Using 100ms instead of actual delay for quick testing
+                }
+            },
+            textures: {
+                exists: (key) => {
+                    log(`Checking if texture exists: ${key}`);
+                    return true;
+                }
+            },
+            revealPercentage: 90,
+            targetPercentage: 85,
+            shotsRemaining: 0,
+            currentLevel: 1,
+            clearTrajectory: () => {},
+            audioManager: {
+                playVictoryMusic: () => { log('Playing victory music'); },
+                playGameOverSound: () => { log('Playing game over sound'); },
+                stopAll: () => {}
+            },
+            levelManager: {
+                hasNextLevel: () => true,
+                hasUnlockedBomb: () => true,
+                getUnlockedBombType: () => 'sticky_bomb',
+                nextLevel: () => {}
+            },
+            BOMB_NAMES: {
+                'sticky_bomb': 'Sticky Girl'
+            },
+            chibiImage: {
+                x: 960,
+                y: 540,
+                setAlpha: () => {}
+            },
+            removeCompletionVeil: () => {},
+            completionVeilRemoved: false,
+            blueVeils: [
+                { 
+                    x: 500, 
+                    y: 500, 
+                    scene: true,
+                    highlight: { scene: true, destroy: () => {} },
+                    destroy: () => {}
+                }
+            ],
+            scene: {
+                restart: () => { log('Scene restarted'); },
+                start: () => { log('Scene started'); },
+                stop: () => { log('Scene stopped'); }
+            },
+            debugMode: true,
+            bombState: {
+                lastBombFired: Date.now() - 30000,
+                lastResetTime: Date.now(),
+                pendingReset: null,
+                maxIdleTime: 20000
+            },
+            bombMissTimer: {
+                remove: () => {}
+            },
+            bomb: {
+                x: 500,
+                y: 600,
+                isLaunched: true,
+                scene: true,
+                destroy: () => {}
+            },
+            resetBomb: () => { log('Reset bomb called'); }
+        };
+
+        // Create instance of GameStateManager
+        const gameStateManager = new GameStateManager(mockScene);
+        
+        // Initialize the manager
+        gameStateManager.init();
+        log('GameStateManager initialized');
+
+        // Test level completion
+        gameStateManager.checkLevelCompletion();
+        log(`Level complete: ${gameStateManager.isLevelComplete}`);
+        
+        // Test game over
+        if (!gameStateManager.isLevelComplete) {
+            gameStateManager.checkGameOver();
+            log(`Game over: ${gameStateManager.isGameOver}`);
+        }
+
+        // Test game state check for recovery
+        gameStateManager.checkGameState();
+        
+        // Reset the game state
+        gameStateManager.resetGameState();
+        log('Game state reset');
+        log(`Level complete after reset: ${gameStateManager.isLevelComplete}`);
+        log(`Game over after reset: ${gameStateManager.isGameOver}`);
+        
+        log('All tests completed!');
+    </script>
+</body>
+</html> 
