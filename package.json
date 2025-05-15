@@ -4,7 +4,6 @@
   "description": "A Phaser-based game where players use a slingshot to launch bombs at ice blocks covering a character silhouette",
   "main": "server.js",
   "scripts": {
-    "start": "node server.js",
     "test": "jest",
     "test:audio": "jest --passWithNoTests --testEnvironment=jsdom test/audio/AudioManagerTest.js"
   },
@@ -17,7 +16,6 @@
   "author": "",
   "license": "ISC",
   "dependencies": {
-    "express": "^4.18.2"
   },
   "devDependencies": {
     "jest": "^29.7.0",

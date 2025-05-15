@@ -10,12 +10,107 @@ class LoadingScene extends Phaser.Scene {
         console.log(`LoadingScene: Initializing for level ${this.levelNumber}`);
     }
 
+    createSharedProceduralAssets() {
+        // Content from BootScene's createShapes() will go here
+        // Create a simple blue background for startup screens
+        const background = this.add.graphics({ willReadFrequently: true });
+        background.fillStyle(0x000000, 1); // Black background
+        background.fillRect(0, 0, 1920, 1080);
+        background.generateTexture('background', 1920, 1080);
+        background.clear();
+        
+        // Create ice block (light blue rectangle with alpha)
+        const iceBlock = this.add.graphics({ willReadFrequently: true });
+        iceBlock.fillStyle(0xaaddff, 0.9);
+        iceBlock.fillRect(0, 0, 40, 40);
+        iceBlock.lineStyle(2, 0xffffff, 0.9);
+        iceBlock.strokeRect(0, 0, 40, 40);
+        iceBlock.generateTexture('iceBlock', 40, 40);
+        iceBlock.clear();
+        
+        // Create slingshot (brown Y shape)
+        const slingshot = this.add.graphics({ willReadFrequently: true });
+        slingshot.fillStyle(0x8B4513, 1);
+        slingshot.fillRect(0, 0, 10, 60);  // Base
+        slingshot.fillRect(-20, 0, 50, 10); // Top part
+        slingshot.generateTexture('slingshot', 50, 60);
+        slingshot.clear();
+        
+        // Note: Bomb texture generation is handled by createBombTextures()
+        // We will not duplicate that here from BootScene's createShapes()
+
+        // Create particle for explosion effects
+        const particle = this.add.graphics({ willReadFrequently: true });
+        particle.fillStyle(0xff5500, 1);
+        particle.fillCircle(8, 8, 8);
+        particle.generateTexture('particle', 16, 16);
+        particle.clear();
+        
+        // Create smaller particle for cluster bombs
+        const miniParticle = this.add.graphics({ willReadFrequently: true });
+        miniParticle.fillStyle(0xffdd44, 1);
+        miniParticle.fillCircle(4, 4, 4);
+        miniParticle.generateTexture('mini_particle', 8, 8);
+        miniParticle.clear();
+        
+        // Create green sticky particles
+        const stickyParticle = this.add.graphics({ willReadFrequently: true });
+        stickyParticle.fillStyle(0x66cc66, 1);
+        stickyParticle.fillCircle(6, 6, 6);
+        stickyParticle.generateTexture('sticky_particle', 12, 12);
+        stickyParticle.clear();
+        
+        // Create red impact particles
+        const impactParticle = this.add.graphics({ willReadFrequently: true });
+        impactParticle.fillStyle(0xcc3333, 1);
+        impactParticle.fillRect(0, 0, 8, 8);
+        impactParticle.generateTexture('impact_particle', 8, 8);
+        impactParticle.clear();
+
+        // Content from BootScene's createAudio() will go here
+        // We'll use the Phaser sound manager to create a procedurally generated explosion sound
+        try {
+            // Create an audio context for programmatic sound creation
+            const audioContext = this.sound.context;
+            if (!audioContext) return;
+            
+            // Add explosion sound using Web Audio API
+            const explosionBuffer = audioContext.createBuffer(1, 4096, audioContext.sampleRate);
+            const explosionData = explosionBuffer.getChannelData(0);
+            
+            // Generate a noise burst for explosion sound
+            for (let i = 0; i < explosionData.length; i++) {
+                const t = i / explosionData.length;
+                // Exponential decay
+                const envelope = Math.pow(1 - t, 2);
+                // Random noise
+                explosionData[i] = (Math.random() * 2 - 1) * envelope;
+            }
+            
+            // Add to the game's cache
+            // Ensure 'explosion' sound is not already loaded by file before adding procedural one
+            if (!this.cache.audio.exists('explosion')) {
+                this.cache.audio.add('explosion', explosionBuffer);
+                console.log("LoadingScene: Created procedural explosion sound.");
+            } else {
+                console.log("LoadingScene: Procedural explosion sound skipped, 'explosion' already in cache (likely from file).");
+            }
+            
+        } catch (e) {
+            console.log("LoadingScene: Could not create procedural audio:", e);
+        }
+        console.log("LoadingScene: Shared procedural assets created.");
+    }
+
     preload() {
         // Add a simple dark background
         this.cameras.main.setBackgroundColor('#000000');
         
+        // Create shared procedural assets (moved from BootScene)
+        this.createSharedProceduralAssets();
+
         // Create the bomb textures programmatically first, before any loading occurs
-        this.createBombTextures();
+        this.createBombTextures(); // This is the primary call for bomb textures
         
         // Display level information
         const levelInfoText = this.add.text(
@@ -140,7 +235,7 @@ class LoadingScene extends Phaser.Scene {
             this.load.image('impact_particle', 'assets/images/impact_particle.png');
             
             // Generate bomb textures programmatically instead of loading images
-            this.createBombTextures();
+            // this.createBombTextures(); // REMOVED: Redundant call, already called above
             
             // Load audio files with simpler approach
             try {

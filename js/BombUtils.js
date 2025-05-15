@@ -369,156 +369,168 @@ class BombUtils {
             return null;
         }
 
-        // Prevent re-initialization if this specific bomb instance is already drilling
         if (activeBombInstance.isCurrentlyDrilling) {
             console.log("BombUtils.handleDrillerBomb: Bomb instance is already drilling. Instance ID:", activeBombInstance.id || "N/A");
-            // Return the existing driller data object if available, or null
             return activeBombInstance.drillerData || null;
         }
-        activeBombInstance.isCurrentlyDrilling = true; // Set flag on the Phaser GameObject
+        activeBombInstance.isCurrentlyDrilling = true; // Prevent re-entry
 
-        console.log("BombUtils.handleDrillerBomb called for bomb at", x, y, "targeting block:", block);
-        activeBombInstance.setStatic(true); // Make the bomb static at the contact point
-        activeBombInstance.setPosition(x, y);
-        activeBombInstance.isDriller = true;
-        activeBombInstance.hasExploded = false; // It hasn't exploded, it's drilling
+        console.log(`[BombUtils.handleDrillerBomb] Initializing Driller Bomb. Impact at (${x.toFixed(1)}, ${y.toFixed(1)}) on block:`, block);
 
-        const drillerBomb = {
-            x: x,
-            y: y,
-            isActive: true,
+        activeBombInstance.setStatic(true);
+        activeBombInstance.setPosition(x, y); // Attach at impact point
+        activeBombInstance.isDriller = true;  // Ensure flag is set
+        activeBombInstance.hasExploded = false; // It's drilling, not exploded
+
+        // Determine drilling direction from impact velocity
+        let dirX = 0, dirY = -1; // Default upwards if no velocity
+        const bodyVelocity = activeBombInstance.body ? activeBombInstance.body.velocity : null;
+
+        if (bodyVelocity && (bodyVelocity.x !== 0 || bodyVelocity.y !== 0)) {
+            const magnitude = Math.sqrt(bodyVelocity.x * bodyVelocity.x + bodyVelocity.y * bodyVelocity.y);
+            dirX = bodyVelocity.x / magnitude;
+            dirY = bodyVelocity.y / magnitude;
+        } else if (velocityX_param !== undefined && velocityY_param !== undefined && (velocityX_param !== 0 || velocityY_param !== 0) ) {
+            // Fallback to provided velocity parameters if body velocity is zero (e.g. if it became static too quickly)
+            const magnitude = Math.sqrt(velocityX_param * velocityX_param + velocityY_param * velocityY_param);
+            dirX = velocityX_param / magnitude;
+            dirY = velocityY_param / magnitude;
+            console.log(`[BombUtils.handleDrillerBomb] Using provided velocity for direction: dx=${dirX.toFixed(2)}, dy=${dirY.toFixed(2)}`);
+        } else {
+            console.warn("[BombUtils.handleDrillerBomb] No valid impact velocity, defaulting drill direction.");
+        }
+
+
+        const drillerData = {
+            initialX: x,
+            initialY: y,
+            currentX: x, // Stores the logical position of the drill head
+            currentY: y,
+            dirX: dirX,
+            dirY: dirY,
+            isActive: true, // Drilling is active
             startTime: this.scene.time.now,
-            duration: 5000, // Drill for 5 seconds
-            blockTarget: block,
-            associatedBombInstance: activeBombInstance, // Keep a reference to the Phaser GameObject
-            hasCompleted: false, // Flag to track if drilling and explosion completed
-            uniqueId: Phaser.Math.RND.uuid() // Unique ID for this drilling operation
+            duration: 3000, // Drill for 3 seconds (changed from 5000)
+            drillStepDistance: 10, // How far to move each drill interval
+            drillInterval: 100, // Milliseconds per drill step (movement & damage check)
+            blockTarget: block, // The initial block hit
+            associatedBombInstance: activeBombInstance,
+            hasCompletedDrilling: false,
+            hasBeenTriggeredExternally: false,
+            uniqueId: Phaser.Math.RND.uuid(),
+            timer: null, // For the 5-second overall duration
+            drillIntervalTimer: null // For the periodic drilling action
         };
-        activeBombInstance.drillerData = drillerBomb; // Link driller data to the bomb instance
+        activeBombInstance.drillerData = drillerData;
 
-        // Create initial drill effect
-        this.createDrillEffect(x, y);
+        this.createDrillEffect(drillerData.currentX, drillerData.currentY); // Initial effect at impact
 
-        // Start a timer for the drilling duration
-        const drillTimer = this.scene.time.addEvent({
-            delay: drillerBomb.duration,
-            callback: () => {
-                drillingComplete();
-            },
+        const completeDrilling = () => {
+            if (!drillerData.isActive && drillerData.hasCompletedDrilling) return; // Already handled
+
+            console.log(`[BombUtils.completeDrilling] Driller ID ${drillerData.uniqueId} finished. Final pos: (${drillerData.currentX.toFixed(1)}, ${drillerData.currentY.toFixed(1)})`);
+            drillerData.isActive = false; // No longer actively drilling
+            drillerData.hasCompletedDrilling = true;
+
+            if (drillerData.timer) {
+                drillerData.timer.remove();
+                drillerData.timer = null;
+            }
+            if (drillerData.drillIntervalTimer) {
+                drillerData.drillIntervalTimer.remove();
+                drillerData.drillIntervalTimer = null;
+            }
+
+            // The bomb GameObject (activeBombInstance) remains static at its last drilled position.
+            // It does NOT explode here. It waits for an external trigger.
+            console.log(`[BombUtils.completeDrilling] Driller ID ${drillerData.uniqueId} now dormant, awaiting external trigger.`);
+
+            // No automatic resetBomb or game state check here. That's handled by external triggers or game over logic.
+        };
+
+        // Timer for the total 5-second drilling duration
+        drillerData.timer = this.scene.time.addEvent({
+            delay: drillerData.duration,
+            callback: completeDrilling,
             callbackScope: this
         });
 
-        drillerBomb.timer = drillTimer; // Store timer reference
-
-        const drillingComplete = () => {
-            if (!drillerBomb.isActive || drillerBomb.hasCompleted) {
-                console.log("BombUtils.drillingComplete: Drilling already completed or bomb inactive for ID:", drillerBomb.uniqueId);
-                return;
-            }
-            drillerBomb.hasCompleted = true;
-            drillerBomb.isActive = false;
-            console.log("BombUtils.drillingComplete: Drilling finished for bomb ID:", drillerBomb.uniqueId, "at", drillerBomb.x, drillerBomb.y);
-
-            // Create a larger explosion at the driller bomb's location
-            this.createDrillerExplosion(drillerBomb.x, drillerBomb.y); // Uses BombUtils's own method
-
-            // Destroy blocks in a radius around the driller bomb
-            if (this.scene.bombUtils && typeof this.scene.bombUtils.destroyBlocksInRadius === 'function') {
-                 this.scene.bombUtils.destroyBlocksInRadius(drillerBomb.x, drillerBomb.y, 120); // Moderate radius
-        } else {
-                console.warn("BombUtils.drillingComplete: this.scene.bombUtils.destroyBlocksInRadius not found!");
-            }
-
-
-            // Also destroy the target block directly if it's still there (it might have been destroyed by radius)
-            if (drillerBomb.blockTarget && drillerBomb.blockTarget.scene && drillerBomb.blockTarget.isActive) {
-                this.destroyIceBlock(drillerBomb.blockTarget); // Uses BombUtils's own method
-            }
-
-            // Clean up the original bomb instance that initiated the drilling
-            if (drillerBomb.associatedBombInstance && drillerBomb.associatedBombInstance.scene) {
-                this.cleanupBombResources(drillerBomb.associatedBombInstance); // Uses BombUtils's own method
-                drillerBomb.associatedBombInstance.destroy();
-                drillerBomb.associatedBombInstance = null; // Clear reference
-            }
-            // Also tell the BombLauncher to clean up its reference to this bomb
-            if (this.scene.bombLauncher && typeof this.scene.bombLauncher.cleanupExistingBomb === 'function') {
-                this.scene.bombLauncher.cleanupExistingBomb();
-            }
-            
-            // Remove this driller bomb from the GameScene's activeDrillerBombs array
-            if (this.scene.activeDrillerBombs) {
-                const index = this.scene.activeDrillerBombs.indexOf(drillerBomb);
-                if (index > -1) {
-                    this.scene.activeDrillerBombs.splice(index, 1);
-                }
-            }
-
-            // After drilling, check for level completion or game over
-            if (this.scene.checkLevelCompletion) this.scene.checkLevelCompletion();
-            if (this.scene.checkGameOver) this.scene.checkGameOver();
-
-            // Logic to reset the bomb if shots are remaining (moved from GameScene's original)
-            if (this.scene.shotsRemaining > 0) {
-                const noBombAvailable = (!this.scene.bombLauncher || !this.scene.bombLauncher.bomb) && !this.scene.bomb;
-                if (noBombAvailable && typeof this.scene.resetBomb === 'function') {
-                    console.log("BombUtils.drillingComplete: Scheduling bomb reset.");
-                    this.scene.time.delayedCall(1000, () => { // Ensure this is called on the scene's time
-                        if ((!this.scene.bombLauncher || !this.scene.bombLauncher.getActiveLaunchedBomb()) && !this.scene.bomb) {
-                             this.scene.resetBomb();
-                        }
-                    }, [], this.scene);
-                }
-            }
-        };
-        
-        // Periodically damage the target block while drilling
-        // And create continuous drill effect
-        drillerBomb.drillIntervalTimer = this.scene.time.addEvent({
-            delay: 250, // Damage every 250ms
+        // Timer for periodic drilling action (movement and damage)
+        drillerData.drillIntervalTimer = this.scene.time.addEvent({
+            delay: drillerData.drillInterval,
             callback: () => {
-                if (!drillerBomb.isActive || !drillerBomb.blockTarget || !drillerBomb.blockTarget.scene || !drillerBomb.blockTarget.isActive) {
-                    // If target is gone or driller inactive, stop this interval early
-                    if(drillerBomb.drillIntervalTimer) drillerBomb.drillIntervalTimer.remove();
-                    // If the block was destroyed by something else, trigger completion early
-                    if (drillerBomb.isActive && !drillerBomb.hasCompleted) {
-                         console.log("BombUtils.handleDrillerBomb: Target block gone, triggering early completion for ID:", drillerBomb.uniqueId);
-                         if(drillTimer) drillTimer.remove(); // Stop the main duration timer
-                         drillingComplete();
-                    }
+                if (!drillerData.isActive || drillerData.hasCompletedDrilling) {
+                    if(drillerData.drillIntervalTimer) drillerData.drillIntervalTimer.remove();
                     return;
                 }
 
-                if (this.scene.damageIceBlock && typeof this.scene.damageIceBlock === 'function') {
-                    this.scene.damageIceBlock(drillerBomb.blockTarget); // GameScene's method to handle block health
-        } else {
-                     console.warn("BombUtils.handleDrillerBomb: this.scene.damageIceBlock is not available!");
-                }
-                this.createDrillEffect(drillerBomb.x, drillerBomb.y); // Continuous effect
+                // Move the drill head's logical position
+                drillerData.currentX += drillerData.dirX * drillerData.drillStepDistance;
+                drillerData.currentY += drillerData.dirY * drillerData.drillStepDistance;
 
-                // Check if block was destroyed by this damage tick
-                if (drillerBomb.blockTarget && (!drillerBomb.blockTarget.scene || !drillerBomb.blockTarget.isActive)) {
-                    if(drillerBomb.drillIntervalTimer) drillerBomb.drillIntervalTimer.remove();
-                    if (drillerBomb.isActive && !drillerBomb.hasCompleted) {
-                        console.log("BombUtils.handleDrillerBomb: Target block destroyed by drill, triggering early completion for ID:", drillerBomb.uniqueId);
-                        if(drillTimer) drillTimer.remove();
-                        drillingComplete();
-                    }
+                // Update the visual position of the bomb GameObject
+                if (drillerData.associatedBombInstance && drillerData.associatedBombInstance.scene) {
+                    drillerData.associatedBombInstance.setPosition(drillerData.currentX, drillerData.currentY);
                 }
+
+                this.createDrillEffect(drillerData.currentX, drillerData.currentY);
+
+                // Check for blocks in a small radius around the new drill head position
+                const drillCheckRadius = drillerData.drillStepDistance * 0.75; // Check slightly less than one step
+                if (this.scene.iceBlocks) {
+                    this.scene.iceBlocks.forEach(iceBlock => {
+                        if (iceBlock && iceBlock.isActive && iceBlock.scene) {
+                            const distance = Phaser.Math.Distance.Between(drillerData.currentX, drillerData.currentY, iceBlock.x, iceBlock.y);
+                            if (distance < drillCheckRadius + (iceBlock.width || 15) / 2) { // Consider block size
+                                console.log(`[BombUtils.drillInterval] Driller ID ${drillerData.uniqueId} damaging block at (${iceBlock.x.toFixed(1)}, ${iceBlock.y.toFixed(1)})`);
+                                if (typeof this.scene.damageIceBlock === 'function') {
+                                    const destroyed = this.scene.damageIceBlock(iceBlock); // damageIceBlock should return true if destroyed
+                                    if (destroyed && iceBlock === drillerData.blockTarget) {
+                                        drillerData.blockTarget = null; // Original target gone
+                                    }
+        } else {
+                                     console.warn("[BombUtils.drillInterval] scene.damageIceBlock is not available.");
+                                     // Fallback: attempt direct destruction if damageIceBlock is missing
+                                     this.destroyIceBlock(iceBlock);
+                                      if (iceBlock === drillerData.blockTarget) drillerData.blockTarget = null;
+                                }
+                            }
+                        }
+                    });
+                }
+
+                // If initial target block is destroyed (and was not nullified yet)
+                if (drillerData.blockTarget && (!drillerData.blockTarget.scene || !drillerData.blockTarget.isActive)) {
+                    drillerData.blockTarget = null;
+                }
+
             },
             callbackScope: this,
-            loop: true // Keep damaging until drilling is complete or block is gone
+            loop: true
         });
 
-
-        // Add this driller bomb to the GameScene's activeDrillerBombs array for tracking
         if (!this.scene.activeDrillerBombs) {
             this.scene.activeDrillerBombs = [];
         }
-        this.scene.activeDrillerBombs.push(drillerBomb);
+        this.scene.activeDrillerBombs.push(drillerData);
+        console.log(`[BombUtils.handleDrillerBomb] Driller bomb ${drillerData.uniqueId} added to activeDrillerBombs. Count: ${this.scene.activeDrillerBombs.length}`);
 
-        // Return the drillerBomb data object for tracking if needed by the caller (CollisionManager)
-        return drillerBomb;
+        // Clear the main bomb reference in BombLauncher/GameScene so a new bomb can be prepared.
+        // The drillerBomb (activeBombInstance) is now managed by its drillerData.
+        if (this.scene.bombLauncher) {
+            if (this.scene.bombLauncher.bomb === activeBombInstance) {
+                this.scene.bombLauncher.bomb = null;
+            }
+            if (this.scene.bombLauncher.bombState) {
+                 this.scene.bombLauncher.bombState.active = false;
+            }
+        }
+        if (this.scene.bomb === activeBombInstance) {
+            this.scene.bomb = null;
+        }
+
+
+        return drillerData;
     }
 
    
@@ -634,6 +646,7 @@ class BombUtils {
     // Create a driller explosion effect
     createDrillerExplosion(x, y) {
         // Large explosion for driller bombs when triggered
+        console.log(`[BombUtils.createDrillerExplosion] Triggered at (${x.toFixed(1)}, ${y.toFixed(1)})`);
         const explosion = this.scene.add.circle(x, y, 150, 0xBB5500, 0.8);
         explosion.setDepth(6);
         
@@ -1121,7 +1134,7 @@ class BombUtils {
         try {
             // Safety check: Ensure bomb exists and hasn't already exploded
             if (!bomb || !bomb.scene || bomb.hasExploded) {
-                console.log("Bomb already exploded or invalid, skipping explosion", { 
+                console.log("[BombUtils.explodeRicochetBomb] Bomb already exploded or invalid, skipping explosion", { 
                     bombExists: !!bomb, 
                     inScene: bomb ? !!bomb.scene : false, 
                     hasExploded: bomb ? bomb.hasExploded : 'N/A'
@@ -1144,37 +1157,36 @@ class BombUtils {
                 bomb.destroy(); 
             }
 
-            console.log(`Exploding ricochet bomb at (${explosionX.toFixed(1)}, ${explosionY.toFixed(1)})`); // USE CAPTURED VALUES
+            console.log(`[BombUtils.explodeRicochetBomb] Exploding ricochet bomb at (${explosionX.toFixed(1)}, ${explosionY.toFixed(1)})`); // USE CAPTURED VALUES
             
+            let explosionEffectSuccessfullyCalled = false; // Define the variable here
             // --- REVISED EXPLOSION HANDLING ---
             try {
                 console.log("[BombUtils.explodeRicochetBomb] Calling this.createLargeExplosion...");
                 this.createLargeExplosion(explosionX, explosionY); // Call own method for visual/audio
-                console.log("... this.createLargeExplosion finished.");
+                console.log("[BombUtils.explodeRicochetBomb] ... this.createLargeExplosion finished.");
 
-                console.log("[BombUtils.explodeRicochetBomb] Calling this.scene.destroyBlocksInRadius...");
-                if (typeof this.scene.destroyBlocksInRadius === 'function') {
-                    this.scene.destroyBlocksInRadius(explosionX, explosionY, 150); // Standard radius for ricochet
-                    console.log("... this.scene.destroyBlocksInRadius finished.");
-                } else {
-                    console.warn("[BombUtils.explodeRicochetBomb] this.scene.destroyBlocksInRadius is not a function!");
-                }
-
+                console.log("[BombUtils.explodeRicochetBomb] Calling this.destroyBlocksInRadius...");
+                // Calls own destroyBlocksInRadius method
+                this.destroyBlocksInRadius(explosionX, explosionY, 150); 
+                console.log("[BombUtils.explodeRicochetBomb] ... this.destroyBlocksInRadius finished.");
+                
                 console.log("[BombUtils.explodeRicochetBomb] Calling this.scene.triggerStickyBomb...");
                 if (typeof this.scene.triggerStickyBomb === 'function') {
-                    this.scene.triggerStickyBomb(explosionX, explosionY, 150); // Standard radius for ricochet
-                    console.log("... this.scene.triggerStickyBomb finished.");
+                    // scene.triggerStickyBomb is correct as it coordinates across different bomb types
+                    this.scene.triggerStickyBomb(explosionX, explosionY, 150); 
+                    console.log("[BombUtils.explodeRicochetBomb] ... this.scene.triggerStickyBomb finished.");
                 } else {
                     console.warn("[BombUtils.explodeRicochetBomb] this.scene.triggerStickyBomb is not a function!");
                 }
-                explosionEffectHandled = true; // Assuming success if no errors
+                explosionEffectSuccessfullyCalled = true; // Assuming success if no errors
             } catch (explosionError) {
                 console.error("[BombUtils.explodeRicochetBomb] Error during revised explosion handling:", explosionError);
-                explosionEffectHandled = false;
+                explosionEffectSuccessfullyCalled = false;
             }
             // --- END REVISED EXPLOSION HANDLING ---
             
-             console.log(`Explosion effect handled: ${explosionEffectHandled}. Starting cleanup...`);
+             console.log(`[BombUtils.explodeRicochetBomb] Explosion effect handled: ${explosionEffectSuccessfullyCalled}. Starting cleanup...`);
             
             // Cleanup bomb resources (timer, text, trail, etc.)
              if (bomb.countdownTimer) {
@@ -1199,20 +1211,15 @@ class BombUtils {
             }
             
             // Force reset the game state
-            this.scene.time.delayedCall(500, () => {
-                try {
-                    if (this.scene.forceResetGameState) {
-                        this.scene.forceResetGameState();
-                    } else if (this.scene.resetBomb) {
-                        this.scene.resetBomb();
-                    } else if (this.scene.bombLauncher && this.scene.bombLauncher.createBomb) {
-                        this.scene.bombLauncher.cleanupExistingBomb();
-                        this.scene.bombLauncher.createBomb(this.scene.currentBombType || 'bomb');
-                    }
-                } catch (e) {
-                    console.error("Error in recovery reset:", e);
-                }
-            });
+            // RETHINK: Exploding a ricochet bomb shouldn't necessarily force a full game state reset.
+            // It should allow the game to continue, reset the current bomb, and check win/loss.
+            // The original forceResetGameState was too aggressive.
+            // Let's schedule a standard bomb reset.
+            if (this.scene.shotsRemaining > 0 && typeof this.scene.resetBomb === 'function') {
+                this.scene.time.delayedCall(100, this.scene.resetBomb, [], this.scene);
+            } else if (typeof this.scene.checkLevelCompletion === 'function') {
+                this.scene.time.delayedCall(100, this.scene.checkLevelCompletion, [], this.scene);
+            }
         } catch (error) {
             console.error("Error in explodeRicochetBomb:", error);
             
@@ -1228,20 +1235,12 @@ class BombUtils {
                 }
                 
                 // Force reset the game state
-                this.scene.time.delayedCall(500, () => {
-                    try {
-                        if (this.scene.forceResetGameState) {
-                            this.scene.forceResetGameState();
-                        } else if (this.scene.resetBomb) {
-                            this.scene.resetBomb();
-                        } else if (this.scene.bombLauncher && this.scene.bombLauncher.createBomb) {
-                            this.scene.bombLauncher.cleanupExistingBomb();
-                            this.scene.bombLauncher.createBomb(this.scene.currentBombType || 'bomb');
-                        }
-                    } catch (e) {
-                        console.error("Error in recovery reset:", e);
-                    }
-                });
+                // RETHINK: Same as above, avoid overly aggressive reset.
+                if (this.scene.shotsRemaining > 0 && typeof this.scene.resetBomb === 'function') {
+                    this.scene.time.delayedCall(100, this.scene.resetBomb, [], this.scene);
+                } else if (typeof this.scene.checkLevelCompletion === 'function') {
+                    this.scene.time.delayedCall(100, this.scene.checkLevelCompletion, [], this.scene);
+                }
             }
         }
     }

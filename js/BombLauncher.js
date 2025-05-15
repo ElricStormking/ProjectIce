@@ -649,7 +649,7 @@ class BombLauncher {
             DRILLER: 'driller_bomb',
             RICOCHET: 'ricochet_bomb'
         };
-
+        
         try {
             // Ensure pointer has valid x and y coordinates
             if (pointer.x === undefined || pointer.y === undefined) {
@@ -687,7 +687,7 @@ class BombLauncher {
             const bombX = this.bomb.x;
             const bombY = this.bomb.y;
             const bombType = this.bomb.bombType || this.validateBombType(this.bomb.texture.key);
-
+            
             // Store any existing countdownText for transfer to the dynamic bomb
             let countdownTextTransfer = null;
             if (this.bomb.countdownText) {
@@ -699,12 +699,12 @@ class BombLauncher {
                 countdownEventTransfer = this.bomb.countdown;
                 this.bomb.countdown = null; // Detach from old bomb
             }
-
+            
             // Store the bombId if it exists (for ricochet bombs)
             const bombId = this.bomb.bombId;
 
             // Clean up the static bomb, but keep the countdown text
-            this.bomb.destroy();
+                this.bomb.destroy();
             this.bomb = null; // Nullify immediately
             
             // Set bomb properties based on type - match original settings
@@ -762,6 +762,119 @@ class BombLauncher {
             this.bomb.isAtSlingshot = false;
             this.bomb.hasHitIceBlock = false; // Reset this flag
 
+            // Attach collision handling logic directly to the bomb instance
+            this.bomb.onHitBlock = function(block, collisionManagerInstance) {
+                // 'this' refers to the bomb instance.
+                // collisionManagerInstance is the instance of CollisionManager.
+                const scene = collisionManagerInstance.scene;
+                const bombUtils = scene.bombUtils;
+                const BOMB_TYPES = scene.BOMB_TYPES || {}; // Safeguard
+
+                let hasExploded = false;
+                let bombStuck = false;
+                let effectProcessedThisCall = false;
+                
+                // This bomb instance is the activeBomb in CollisionManager's context
+                const bombX = this.x;
+                const bombY = this.y;
+                const bombType = this.bombType;
+
+                // Logic adapted from CollisionManager._handleBombToBlockCollision
+                if (!bombUtils) {
+                    console.error("[Bomb.onHitBlock] scene.bombUtils is not defined!");
+                    this.hasExploded = true;
+                    return { processed: true, hasExploded: true, bombStuck: false };
+                }
+
+                switch (bombType) {
+                    case BOMB_TYPES.BLAST:
+                        if (scene.debugMode) console.log("[Bomb.onHitBlock] Handling BLAST bomb.");
+                        bombUtils.handleBlastBomb(bombX, bombY);
+                        hasExploded = true;
+                        break;
+                    case BOMB_TYPES.PIERCER:
+                        let velocity = (this.body) ? this.body.velocity : { x: 0, y: 1 };
+                        if (scene.debugMode) console.log("[Bomb.onHitBlock] Handling PIERCER bomb.");
+                        bombUtils.handlePiercerBomb(bombX, bombY, velocity);
+                        hasExploded = true;
+                        break;
+                    case BOMB_TYPES.CLUSTER:
+                        if (scene.debugMode) console.log("[Bomb.onHitBlock] Handling CLUSTER bomb.");
+                        bombUtils.handleClusterBomb(bombX, bombY);
+                        hasExploded = true;
+                        break;
+                    case BOMB_TYPES.STICKY:
+                        this.isSticky = true; // Mark the bomb instance
+                        if (scene.debugMode) console.log("[Bomb.onHitBlock] Handling STICKY bomb.");
+                        if (typeof bombUtils.handleStickyBomb === 'function') {
+                            bombUtils.handleStickyBomb(bombX, bombY, block); // Pass block
+                        } else {
+                            console.warn("[Bomb.onHitBlock] No handler for STICKY bomb! Defaulting to blast.");
+                            bombUtils.handleBlastBomb(bombX, bombY);
+                            hasExploded = true;
+                        }
+                        bombStuck = true; // Sticky bombs "stick"
+                        hasExploded = false; // Sticky bombs don't explode on initial contact
+                        break;
+                    case BOMB_TYPES.SHATTERER:
+                        if (scene.debugMode) console.log("[Bomb.onHitBlock] Handling SHATTERER bomb.");
+                        bombUtils.handleShattererBomb(bombX, bombY);
+                        hasExploded = true;
+                        break;
+                    case BOMB_TYPES.DRILLER:
+                        this.isDriller = true; // Mark the bomb instance
+                        if (scene.debugMode) console.log("[Bomb.onHitBlock] Handling DRILLER bomb.");
+                        let drillerBombInstance = null;
+                        let velocityX_drill = 0, velocityY_drill = 0;
+                        if (this.body && this.body.velocity) {
+                            velocityX_drill = this.body.velocity.x;
+                            velocityY_drill = this.body.velocity.y;
+                            this.storedVelocityX = velocityX_drill;
+                            this.storedVelocityY = velocityY_drill;
+                        }
+                        if (bombUtils && typeof bombUtils.handleDrillerBomb === 'function') {
+                            // Pass 'this' (the bomb instance) to handleDrillerBomb
+                            drillerBombInstance = bombUtils.handleDrillerBomb(this, bombX, bombY, block, velocityX_drill, velocityY_drill);
+                        } else {
+                            console.warn("[Bomb.onHitBlock] Critical: bombUtils.handleDrillerBomb not found! Defaulting to blast.");
+                            bombUtils.handleBlastBomb(bombX, bombY);
+                            hasExploded = true;
+                        }
+                        // if (drillerBombInstance && scene.activeDrillerBombs && !scene.activeDrillerBombs.includes(drillerBombInstance)) {
+                        //     scene.activeDrillerBombs.push(drillerBombInstance); // This should be handled within handleDrillerBomb or by CollisionManager post-call
+                        // }
+                        bombStuck = true; // Driller bombs "stick" initially
+                        hasExploded = false; // Driller bombs don't explode on initial contact
+                        break;
+                    case BOMB_TYPES.RICOCHET:
+                        this.isRicochet = true; // Ensure ricochet status
+                        if (scene.debugMode) console.log("[Bomb.onHitBlock] Handling RICOCHET bomb contact with block. It should bounce.");
+                        // Physics engine handles the bounce.
+                        // Call CollisionManager's handleBouncyBlock for effects if needed by passing collisionManagerInstance
+                        if (collisionManagerInstance && typeof collisionManagerInstance.handleBouncyBlock === 'function') {
+                             collisionManagerInstance.handleBouncyBlock(block, this);
+                        }
+                        hasExploded = false;
+                        bombStuck = false;
+                        break;
+                    default:
+                        if (scene.debugMode) console.log(`[Bomb.onHitBlock] Unknown bomb type: ${bombType}, using BLAST.`);
+                        bombUtils.handleBlastBomb(bombX, bombY);
+                        hasExploded = true;
+                        break;
+                }
+                effectProcessedThisCall = true;
+                
+                // Update the bomb's own hasExploded state based on the outcome
+                // Sticky and Driller bombs set their own this.hasExploded within their specific handlers in BombUtils if they actually explode later.
+                // For Ricochet, it's managed by its timer or boundary hits leading to explosion.
+                if (bombType !== BOMB_TYPES.STICKY && bombType !== BOMB_TYPES.DRILLER && bombType !== BOMB_TYPES.RICOCHET) {
+                    this.hasExploded = hasExploded;
+                }
+
+                return { processed: effectProcessedThisCall, hasExploded: hasExploded, bombStuck: bombStuck };
+            };
+
             // Transfer the bombId if it exists (for ricochet bombs from GameScene.createDynamicBomb)
             if (bombId) {
                 this.bomb.bombId = bombId;
@@ -798,29 +911,29 @@ class BombLauncher {
                     this.bomb.explosionTime = this.bomb.bounceStartTime + countdownDuration;
 
 
-                    this.bomb.countdownText = this.scene.add.text(bombX, bombY - 30, '5.0', {
+                this.bomb.countdownText = this.scene.add.text(bombX, bombY - 30, '5.0', {
                         font: '24px Arial', // Matched from BombLauncher's original Ricochet setup
-                        fill: '#FFFFFF',
-                        stroke: '#000000',
-                        strokeThickness: 4,
+                    fill: '#FFFFFF',
+                    stroke: '#000000',
+                    strokeThickness: 4,
                         fontWeight: 'bold' // Matched
                     }).setOrigin(0.5).setDepth(20); // Matched
                     
-                    this.bomb.countdown = this.scene.time.addEvent({
-                        delay: 100, // Update every 100ms
-                        callback: () => {
+                this.bomb.countdown = this.scene.time.addEvent({
+                    delay: 100, // Update every 100ms
+                    callback: () => {
                             if (!this.bomb || !this.bomb.scene || this.bomb.hasExploded) { // Check hasExploded
                                 if (this.bomb && this.bomb.countdown) this.bomb.countdown.remove(); // Stop event if bomb exploded
                                 return;
                             }
-                            
-                            const elapsed = Date.now() - this.bomb.bounceStartTime;
-                            const remaining = Math.max(0, (this.bomb.bounceDuration - elapsed) / 1000);
-                            
-                            if (this.bomb.countdownText && this.bomb.countdownText.scene) {
-                                this.bomb.countdownText.setText(remaining.toFixed(1));
-                                this.bomb.countdownText.setPosition(this.bomb.x, this.bomb.y - 30);
-                                
+
+                        const elapsed = Date.now() - this.bomb.bounceStartTime;
+                        const remaining = Math.max(0, (this.bomb.bounceDuration - elapsed) / 1000);
+
+                        if (this.bomb.countdownText && this.bomb.countdownText.scene) {
+                            this.bomb.countdownText.setText(remaining.toFixed(1));
+                            this.bomb.countdownText.setPosition(this.bomb.x, this.bomb.y - 30);
+
                                 if (remaining < 1) this.bomb.countdownText.setFill('#FF0000');
                                 else if (remaining < 2) this.bomb.countdownText.setFill('#FFFF00');
                                 else this.bomb.countdownText.setFill('#FFFFFF'); // Reset color
@@ -843,8 +956,8 @@ class BombLauncher {
                             }
                         },
                         callbackScope: this, // Important: callbackScope is this BombLauncher
-                        loop: true
-                    });
+                    loop: true
+                });
                      // Add trail if scene has particle system
                     if (this.scene.add.particles) {
                         try {
@@ -884,7 +997,7 @@ class BombLauncher {
                 this.scene.bombState.active = true;
                 this.scene.bombState.lastBombFired = this.bombState.lastBombFired; // Use the same timestamp
             }
-
+            
             // Set bomb creation pending flag to true for a while, preventing immediate bomb recreation
             this.bombState.bombCreationPending = true;
             this.scene.time.delayedCall(1000, () => {
