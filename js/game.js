@@ -84,50 +84,9 @@ const config = {
 };
 
 window.addEventListener('load', () => {
-<<<<<<< HEAD
     // Create the game instance
     const game = new Phaser.Game(config);
 
-=======
-    // Add CSS to prevent scrolling
-    const style = document.createElement('style');
-    style.textContent = `
-        html, body {
-            margin: 0;
-            padding: 0;
-            overflow: hidden;
-            width: 100%;
-            height: 100%;
-            background-color: #000;
-        }
-        #game-container {
-            width: 100%;
-            height: 100%;
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            overflow: hidden;
-        }
-        canvas {
-            display: block;
-            max-width: 100%;
-            max-height: 100%;
-            object-fit: contain;
-        }
-    `;
-    document.head.appendChild(style);
-    
-    // Create the game instance
-    const game = new Phaser.Game(config);
-    
-    // Add console logging to help debug
-    console.log('Game initialized');
-    
-    // Add browser info for debugging
-    console.log('Browser:', navigator.userAgent);
-    console.log('Phaser version:', Phaser.VERSION);
-    
->>>>>>> 7e3f691b0351599926fa6cf036ebfbfe68df0282
     // Listen for window resize events
     window.addEventListener('resize', () => {
         // Notify game scale manager to update size
@@ -138,11 +97,7 @@ window.addEventListener('load', () => {
             game.scale.refresh();
         }
     });
-<<<<<<< HEAD
 
-=======
-    
->>>>>>> 7e3f691b0351599926fa6cf036ebfbfe68df0282
     // Listen for errors
     window.addEventListener('error', (event) => {
         console.error('Global error:', event.message);
