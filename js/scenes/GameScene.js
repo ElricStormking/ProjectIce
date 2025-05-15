@@ -651,7 +651,7 @@
         // Force all veils to 50% transparency as per user request
         // Changing to 25% (twice more transparent)
         veilAlpha = 0.25;
-
+        
         // Create a blue veil rectangle for this block with type-specific color
         const blueVeil = this.add.rectangle(
             x, 
@@ -683,7 +683,7 @@
             blueVeil.setStrokeStyle(3, 0xFF0000, 0.8); // Fiery red border for dynamite veil
         }
         // --- End enhancements ---
-
+        
         // Add a slight random rotation for a more natural ice look
         if (Math.random() < 0.5) {
             blueVeil.setRotation(Math.random() * 0.2 - 0.1);
@@ -3626,7 +3626,10 @@
         const noBombExists = !this.bomb || !this.bomb.scene;
         const noBombInLauncher = !this.bombLauncher || !this.bombLauncher.bomb || !this.bombLauncher.bomb.scene;
         
-        if (noBombExists && noBombInLauncher && this.shotsRemaining > 0 && !this.isCreatingNewBomb) {
+        // Check BombLauncher's state as well
+        const bombLauncherReadyForNewBomb = this.bombLauncher ? !this.bombLauncher.bombState.bombCreationPending : true;
+
+        if (noBombExists && noBombInLauncher && this.shotsRemaining > 0 && !this.isCreatingNewBomb && bombLauncherReadyForNewBomb) {
             console.log("No bomb exists, creating one in applyGameSettings");
             this.isCreatingNewBomb = true;
             

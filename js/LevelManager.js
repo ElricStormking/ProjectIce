@@ -3,45 +3,34 @@ class LevelManager {
     constructor(scene) {
         this.scene = scene;
         this.currentLevel = 1;
-        this.maxLevels = 5;
+        this.maxLevels = 30; // Increased to 30 to match asset structure
         this.levelData = {};
         
         // Initialize with default values in case loading fails
-        this.defaultLevelData = {
-            1: {
-                levelNumber: 1,
-                chibiImage: 'chibi_girl1',
-                victoryBackground: 'victoryBackground1',
-                background: 'background1',
-                targetPercentage: 85,
-                bombsAvailable: {
-                    blast_bomb: 3,
-                    piercer_bomb: 0,
-                    cluster_bomb: 1,
-                    sticky_bomb: 5,
-                    shatterer_bomb: 1,
-                    driller_bomb: 3
-                },
-                unlockedBomb: null
+        // These defaults will be used if a specific level_config.json is missing or invalid
+        this.defaultBaseLevelConfig = {
+            levelNumber: 1, // This will be overridden by the actual level number
+            chibiImageKey: 'chibi_girl1', // Will be dynamically set to chibi_girl{level}
+            victoryBackgroundKey: 'victoryBackground1', // Will be dynamically set to victoryBackground{level}
+            backgroundImageKey: 'background1', // Will be dynamically set to background{level}
+            targetPercentage: 85,
+            bombsAvailable: { // Default bombs if not specified in level_config.json
+                blast_bomb: 3,
+                piercer_bomb: 0,
+                cluster_bomb: 1,
+                sticky_bomb: 5,
+                shatterer_bomb: 1,
+                driller_bomb: 3,
+                ricochet_bomb: 0
             },
-            2: {
-                levelNumber: 2,
-                chibiImage: 'chibi_girl2',
-                victoryBackground: 'victoryBackground2',
-                background: 'background2',
-                targetPercentage: 85,
-                bombsAvailable: {
-                    blast_bomb: 3,
-                    piercer_bomb: 2,
-                    cluster_bomb: 0,
-                    sticky_bomb: 0,
-                    shatterer_bomb: 0,
-                    driller_bomb: 3,
-                    ricochet_bomb: 2
-                },
-                unlockedBomb: 'piercer_bomb'
-            }
-            // Levels 3, 4, 5 would be added here
+            unlockedBomb: null,
+            blockLayoutPath: 'block_layout.json', // Default relative path within level folder
+            availableBombsPath: 'available_bombs.json' // Default relative path
+        };
+
+        // Initialize defaultLevelData with a basic structure for level 1
+        this.defaultLevelData = {
+            1: this.createDefaultLevelData(1) // Populate for level 1 by default
         };
     }
     
@@ -100,57 +89,50 @@ class LevelManager {
                     const response = await fetch(configPath);
                     
                     if (response.ok) {
-                        const levelConfig = await response.json();
+                        const loadedConfig = await response.json();
                         
-                        // Store the level data
-                        this.levelData[level] = {
-                            levelNumber: level,
-                            chibiImage: `chibi_girl${level}`,
-                            victoryBackground: `victoryBackground${level}`,
-                            background: `background${level}`,
-                            targetPercentage: 85, // Default, can be overridden by config
-                            bombsAvailable: {}
-                        };
+                        // Start with a copy of the default base config
+                        this.levelData[level] = { ...this.defaultBaseLevelConfig };
                         
-                        // Copy bomb availability from the config
-                        if (levelConfig.bombAvailability) {
-                            this.levelData[level].bombsAvailable = levelConfig.bombAvailability;
-                            console.log(`Loaded bomb availability for level ${level}:`, this.levelData[level].bombsAvailable);
-                        } else {
-                            console.log(`No bomb availability config found for level ${level}, using defaults`);
-                            // If no bomb availability found, use defaults from defaultLevelData or create them
-                            if (this.defaultLevelData[level] && this.defaultLevelData[level].bombsAvailable) {
-                                this.levelData[level].bombsAvailable = {...this.defaultLevelData[level].bombsAvailable};
-                                console.log(`Using default bomb availability for level ${level}:`, this.levelData[level].bombsAvailable);
+                        // Override with loaded config values
+                        this.levelData[level].levelNumber = level;
+                        this.levelData[level].chibiImageKey = loadedConfig.chibiImageKey || `chibi_girl${level}`;
+                        this.levelData[level].victoryBackgroundKey = loadedConfig.victoryBackgroundKey || `victoryBackground${level}`;
+                        this.levelData[level].backgroundImageKey = loadedConfig.backgroundImageKey || `background${level}`;
+                        this.levelData[level].targetPercentage = loadedConfig.targetPercentage || this.defaultBaseLevelConfig.targetPercentage;
+                        this.levelData[level].unlockedBomb = loadedConfig.unlockedBomb || this.defaultBaseLevelConfig.unlockedBomb;
+                        this.levelData[level].blockLayoutPath = loadedConfig.blockLayoutPath || `${this.defaultBaseLevelConfig.blockLayoutPath}`;
+                        this.levelData[level].availableBombsPath = loadedConfig.availableBombsPath || `${this.defaultBaseLevelConfig.availableBombsPath}`;
+
+                        // Handle bombsAvailable: prioritize available_bombs.json, then level_config.json, then defaults
+                        const availableBombsConfigPath = `assets/images/level${level}/${this.levelData[level].availableBombsPath}`;
+                        try {
+                            const bombsResponse = await fetch(availableBombsConfigPath);
+                            if (bombsResponse.ok) {
+                                this.levelData[level].bombsAvailable = await bombsResponse.json();
+                                console.log(`Level ${level}: Loaded bombs from ${this.levelData[level].availableBombsPath}`);
                             } else {
-                                // Generate default bomb counts for this level
-                                this.levelData[level].bombsAvailable = this.createDefaultBombCounts(level);
-                                console.log(`Created default bomb counts for level ${level}:`, this.levelData[level].bombsAvailable);
+                                throw new Error(`Failed to fetch ${availableBombsConfigPath}`);
+                            }
+                        } catch (bombsError) {
+                            console.warn(`Level ${level}: Could not load bombs from ${this.levelData[level].availableBombsPath} (${bombsError.message}). Checking level_config.json...`);
+                            if (loadedConfig.bombsAvailable) {
+                                this.levelData[level].bombsAvailable = loadedConfig.bombsAvailable;
+                                console.log(`Level ${level}: Loaded bombs from level_config.json`);
+                            } else {
+                                this.levelData[level].bombsAvailable = { ...this.defaultBaseLevelConfig.bombsAvailable };
+                                console.log(`Level ${level}: Used default bomb counts.`);
                             }
                         }
                         
-                        // Set the target percentage if provided in config
-                        if (levelConfig.targetPercentage) {
-                            this.levelData[level].targetPercentage = levelConfig.targetPercentage;
-                        }
-                        
-                        // Set the unlocked bomb type if available
-                        if (levelConfig.bombType) {
-                            this.levelData[level].unlockedBomb = levelConfig.bombType;
-                        }
-                        
-                        console.log(`Loaded configuration for level ${level}`);
+                        console.log(`Loaded configuration for level ${level}:`, this.levelData[level]);
                     } else {
-                        console.warn(`No configuration found for level ${level}, using defaults`);
-                        // If config doesn't exist, use default data
-                        this.levelData[level] = this.defaultLevelData[level] || 
-                                              this.createDefaultLevelData(level);
+                        console.warn(`No configuration found for level ${level} at ${configPath}, creating from defaults.`);
+                        this.levelData[level] = this.createDefaultLevelData(level);
                     }
                 } catch (levelError) {
-                    console.warn(`Error loading level ${level} configuration:`, levelError);
-                    // If loading fails, use default data
-                    this.levelData[level] = this.defaultLevelData[level] || 
-                                          this.createDefaultLevelData(level);
+                    console.warn(`Error loading level ${level} configuration: ${levelError.message}. Creating from defaults.`);
+                    this.levelData[level] = this.createDefaultLevelData(level);
                 }
             }
             
@@ -167,93 +149,36 @@ class LevelManager {
     // Create default level data for a level without configuration
     createDefaultLevelData(level) {
         console.log(`Creating default level data for level ${level}`);
-        return {
-            1: {
-                levelNumber: 1,
-                chibiImage: 'chibi_girl1',
-                victoryBackground: 'victoryBackground1',
-                background: 'background1',
-                targetPercentage: 80,
-                bombsAvailable: {
-                    blast_bomb: 3,
-                    piercer_bomb: 0,
-                    cluster_bomb: 1,
-                    sticky_bomb: 5,
-                    shatterer_bomb: 1,
-                    driller_bomb: 3,
-                    ricochet_bomb: 0
-                },
-                unlockedBomb: null
-            },
-            2: {
-                levelNumber: 2,
-                chibiImage: 'chibi_girl2',
-                victoryBackground: 'victoryBackground2',
-                background: 'background2',
-                targetPercentage: 85,
-                bombsAvailable: {
-                    blast_bomb: 3,
-                    piercer_bomb: 2,
-                    cluster_bomb: 0,
-                    sticky_bomb: 0,
-                    shatterer_bomb: 0,
-                    driller_bomb: 3,
-                    ricochet_bomb: 2
-                },
-                unlockedBomb: 'piercer_bomb'
-            },
-            3: {
-                levelNumber: 3,
-                chibiImage: 'chibi_girl3',
-                victoryBackground: 'victoryBackground3',
-                background: 'background3',
-                targetPercentage: 85,
-                bombsAvailable: {
-                    blast_bomb: 3,
-                    piercer_bomb: 3,
-                    cluster_bomb: 2,
-                    sticky_bomb: 0,
-                    shatterer_bomb: 0,
-                    driller_bomb: 3,
-                    ricochet_bomb: 2
-                },
-                unlockedBomb: 'cluster_bomb'
-            },
-            4: {
-                levelNumber: 4,
-                chibiImage: 'chibi_girl4',
-                victoryBackground: 'victoryBackground4',
-                background: 'background4',
-                targetPercentage: 85,
-                bombsAvailable: {
-                    blast_bomb: 3,
-                    piercer_bomb: 3,
-                    cluster_bomb: 2,
-                    sticky_bomb: 2,
-                    shatterer_bomb: 0,
-                    driller_bomb: 3,
-                    ricochet_bomb: 2
-                },
-                unlockedBomb: 'sticky_bomb'
-            },
-            5: {
-                levelNumber: 5,
-                chibiImage: 'chibi_girl5',
-                victoryBackground: 'victoryBackground5',
-                background: 'background5',
-                targetPercentage: 90,
-                bombsAvailable: {
-                    blast_bomb: 3,
-                    piercer_bomb: 3,
-                    cluster_bomb: 2,
-                    sticky_bomb: 2,
-                    shatterer_bomb: 1,
-                    driller_bomb: 3,
-                    ricochet_bomb: 2
-                },
-                unlockedBomb: 'shatterer_bomb'
-            }
-        }[level] || this.createDefaultLevel1Data();
+        // Start with a copy of the default base config
+        const defaultData = { ...this.defaultBaseLevelConfig };
+        
+        // Customize for the specific level
+        defaultData.levelNumber = level;
+        defaultData.chibiImageKey = `chibi_girl${level}`;
+        defaultData.victoryBackgroundKey = `victoryBackground${level}`;
+        defaultData.backgroundImageKey = `background${level}`;
+        
+        // Example of how bombs might change per level by default if not specified
+        if (level === 1) {
+            defaultData.bombsAvailable = { blast_bomb: 3, cluster_bomb: 1, sticky_bomb: 5, shatterer_bomb: 1, driller_bomb: 3, ricochet_bomb: 0, piercer_bomb: 0 };
+        } else if (level === 2) {
+            defaultData.bombsAvailable = { blast_bomb: 3, piercer_bomb: 2, driller_bomb: 3, ricochet_bomb: 2, cluster_bomb: 0, sticky_bomb: 0, shatterer_bomb: 0 };
+            defaultData.unlockedBomb = 'piercer_bomb';
+        } else if (level >= 3 && level <= 5) { // Generic for 3-5
+            defaultData.bombsAvailable = { blast_bomb: 2, piercer_bomb: 2, cluster_bomb: 2, sticky_bomb: 2, shatterer_bomb: 1, driller_bomb: 2, ricochet_bomb: 1 };
+            if (level === 3) defaultData.unlockedBomb = 'cluster_bomb';
+            if (level === 4) defaultData.unlockedBomb = 'sticky_bomb';
+            if (level === 5) defaultData.unlockedBomb = 'shatterer_bomb';
+        } else { // For levels > 5, provide a generic set or scale them
+             defaultData.bombsAvailable = { blast_bomb: 2, piercer_bomb: 2, cluster_bomb: 2, sticky_bomb: 2, shatterer_bomb: 2, driller_bomb: 2, ricochet_bomb: 2 };
+        }
+        
+        // Default paths for block layout and available bombs JSON files within the level's asset folder
+        defaultData.blockLayoutPath = `block_layout.json`;
+        defaultData.availableBombsPath = `available_bombs.json`;
+
+        console.log(`Created default data for level ${level}:`, defaultData);
+        return defaultData;
     }
     
     // Create default bomb counts for a level
@@ -272,7 +197,12 @@ class LevelManager {
     
     // Get the current level data
     getCurrentLevelData() {
-        return this.levelData[this.currentLevel] || this.defaultLevelData[1];
+        if (this.levelData && this.levelData[this.currentLevel]) {
+            return this.levelData[this.currentLevel];
+        }
+        console.warn(`LevelManager: No specific data found for level ${this.currentLevel}. Falling back to default for level 1.`);
+        // Fallback to default data for level 1 if current level data is missing
+        return this.defaultLevelData[1] || this.createDefaultLevelData(1);
     }
     
     // Move to the next level
@@ -320,19 +250,19 @@ class LevelManager {
     // Get image key for the current level's chibi
     getChibiImageKey() {
         const levelData = this.getCurrentLevelData();
-        return levelData.chibiImage || `chibi_girl${this.currentLevel}`;
+        return levelData.chibiImageKey || `chibi_girl${this.currentLevel}`;
     }
     
     // Get background key for the current level
-    getBackgroundKey() {
+    getBackgroundKey() { // Renamed from getBackgroundImageKey for consistency
         const levelData = this.getCurrentLevelData();
-        return levelData.background || `background${this.currentLevel}`;
+        return levelData.backgroundImageKey || `background${this.currentLevel}`;
     }
     
     // Get victory background key for the current level
-    getVictoryBackgroundKey() {
+    getVictoryBackgroundKey() { // Renamed from getVictoryBackgroundImageKey
         const levelData = this.getCurrentLevelData();
-        return levelData.victoryBackground || `victoryBackground${this.currentLevel}`;
+        return levelData.victoryBackgroundKey || `victoryBackground${this.currentLevel}`;
     }
     
     // Get target percentage for the current level
@@ -354,24 +284,22 @@ class LevelManager {
     
     // Fallback method if level data isn't found
     createDefaultLevel1Data() {
-        console.log("Creating fallback level 1 data");
-        return {
-            levelNumber: 1,
-            chibiImage: 'chibi_girl1',
-            victoryBackground: 'victoryBackground1',
-            background: 'background1',
-            targetPercentage: 80,
-            bombsAvailable: {
-                blast_bomb: 3,
-                piercer_bomb: 0,
-                cluster_bomb: 1,
-                sticky_bomb: 5,
-                shatterer_bomb: 1,
-                driller_bomb: 3,
-                ricochet_bomb: 0
-            },
-            unlockedBomb: null
-        };
+        console.log("Creating fallback level 1 data (using createDefaultLevelData(1))");
+        return this.createDefaultLevelData(1);
+    }
+
+    // Method to get the path for block_layout.json for the current level
+    getBlockLayoutPath() {
+        const levelData = this.getCurrentLevelData();
+        // Path is relative to assets/images/level{X}/
+        return `assets/images/level${this.currentLevel}/${levelData.blockLayoutPath || 'block_layout.json'}`;
+    }
+
+    // Method to get the path for available_bombs.json for the current level
+    getAvailableBombsPath() {
+        const levelData = this.getCurrentLevelData();
+        // Path is relative to assets/images/level{X}/
+        return `assets/images/level${this.currentLevel}/${levelData.availableBombsPath || 'available_bombs.json'}`;
     }
 }
 

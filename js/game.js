@@ -86,7 +86,7 @@ const config = {
 window.addEventListener('load', () => {
     // Create the game instance
     const game = new Phaser.Game(config);
-
+    
     // Listen for window resize events
     window.addEventListener('resize', () => {
         // Notify game scale manager to update size
@@ -97,7 +97,7 @@ window.addEventListener('load', () => {
             game.scale.refresh();
         }
     });
-
+    
     // Listen for errors
     window.addEventListener('error', (event) => {
         console.error('Global error:', event.message);

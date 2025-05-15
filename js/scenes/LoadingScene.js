@@ -108,7 +108,7 @@ class LoadingScene extends Phaser.Scene {
         
         // Create shared procedural assets (moved from BootScene)
         this.createSharedProceduralAssets();
-
+        
         // Create the bomb textures programmatically first, before any loading occurs
         this.createBombTextures(); // This is the primary call for bomb textures
         

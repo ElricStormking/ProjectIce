@@ -180,8 +180,8 @@ class BombUtils {
     }
     
     // Handle sticky bomb placement
-    handleStickyBomb(x, y, block) {
-        console.log("BombUtils.handleStickyBomb called at", x, y);
+    handleStickyBomb(x, y, block, bombInstanceToUse = null) {
+        console.log("BombUtils.handleStickyBomb called at", x, y, "with bomb instance:", bombInstanceToUse ? (bombInstanceToUse.texture ? bombInstanceToUse.texture.key : 'unknown texture') : 'none passed');
         
         // Create a visual sticky effect to show bomb has stuck, but not exploded
         const stickyEffect = this.scene.add.circle(x, y, 30, 0xff99ff, 0.5);
@@ -218,11 +218,14 @@ class BombUtils {
         let bombSprite = null;
         
         // Get the active bomb reference from either direct reference or launcher
-        let activeBomb = null;
-        if (this.scene.bombLauncher && this.scene.bombLauncher.bomb) {
-            activeBomb = this.scene.bombLauncher.bomb;
-        } else if (this.scene.bomb) {
-            activeBomb = this.scene.bomb;
+        let activeBomb = bombInstanceToUse;
+
+        if (!activeBomb) { // If not directly passed, try to find it as before
+            if (this.scene.bombLauncher && this.scene.bombLauncher.bomb) {
+                activeBomb = this.scene.bombLauncher.bomb;
+            } else if (this.scene.bomb) {
+                activeBomb = this.scene.bomb;
+            }
         }
         
         if (activeBomb) {
@@ -249,8 +252,8 @@ class BombUtils {
                 }
             }
             
-            if (this.scene.bomb === activeBomb) {
-            this.scene.bomb = null;
+            if (this.scene.bomb === activeBomb) { // Also clear direct scene reference if it matches
+                this.scene.bomb = null;
             }
         }
         
@@ -400,6 +403,24 @@ class BombUtils {
             console.warn("[BombUtils.handleDrillerBomb] No valid impact velocity, defaulting drill direction.");
         }
 
+        // Calculate dynamic drill duration
+        const launchPower = activeBombInstance.launchPower || 0;
+        const MAX_DRAG_DISTANCE = this.scene.bombLauncher ? this.scene.bombLauncher.MAX_DRAG_DISTANCE : 200;
+        const MIN_DRAG_DISTANCE_FOR_LAUNCH = 20; // From BombLauncher logic
+
+        let normalizedPower = 0;
+        if (MAX_DRAG_DISTANCE > MIN_DRAG_DISTANCE_FOR_LAUNCH) {
+            normalizedPower = (launchPower - MIN_DRAG_DISTANCE_FOR_LAUNCH) / (MAX_DRAG_DISTANCE - MIN_DRAG_DISTANCE_FOR_LAUNCH);
+        }
+        normalizedPower = Math.max(0, Math.min(normalizedPower, 1)); // Clamp to 0-1
+
+        const MIN_DRILL_DURATION = 1000; // ms
+        const MAX_DRILL_DURATION = 4000; // ms
+        const dynamicDuration = MIN_DRILL_DURATION + normalizedPower * (MAX_DRILL_DURATION - MIN_DRILL_DURATION);
+
+        if (this.scene.debugMode) {
+            console.log(`[BombUtils.handleDrillerBomb] Launch Power: ${launchPower.toFixed(1)}, Normalized: ${normalizedPower.toFixed(2)}, Calculated Duration: ${dynamicDuration.toFixed(0)}ms`);
+        }
 
         const drillerData = {
             initialX: x,
@@ -410,7 +431,7 @@ class BombUtils {
             dirY: dirY,
             isActive: true, // Drilling is active
             startTime: this.scene.time.now,
-            duration: 3000, // Drill for 3 seconds (changed from 5000)
+            duration: dynamicDuration, // Use calculated duration
             drillStepDistance: 10, // How far to move each drill interval
             drillInterval: 100, // Milliseconds per drill step (movement & damage check)
             blockTarget: block, // The initial block hit
@@ -418,7 +439,7 @@ class BombUtils {
             hasCompletedDrilling: false,
             hasBeenTriggeredExternally: false,
             uniqueId: Phaser.Math.RND.uuid(),
-            timer: null, // For the 5-second overall duration
+            timer: null, // For the overall duration
             drillIntervalTimer: null // For the periodic drilling action
         };
         activeBombInstance.drillerData = drillerData;
@@ -773,7 +794,7 @@ class BombUtils {
                 bomb.particles = null;
             }
             
-            // Destroy the bomb sprite if it exists
+            // Destroy the bomb sprite if it exists on a nested property
             if (bomb.bombSprite) {
                 if (bomb.bombSprite.scene) {
                     bomb.bombSprite.destroy();
@@ -789,10 +810,18 @@ class BombUtils {
             if (bomb.emitter) {
                 if (bomb.emitter.manager && bomb.emitter.manager.scene) {
                     bomb.emitter.stop();
-                    bomb.emitter.remove();
+                    // Consider if emitter.remove() is needed depending on how it's structured
                 }
                 bomb.emitter = null;
             }
+
+            // Directly destroy the 'bomb' object itself if it's a valid GameObject
+            // This handles cases like the driller bomb's associatedBombInstance directly.
+            if (bomb && typeof bomb.destroy === 'function' && bomb.scene) {
+                console.log(`[BombUtils.cleanupBombResources] Directly destroying object (e.g., bomb sprite): ${bomb.texture ? bomb.texture.key : (bomb.constructor ? bomb.constructor.name : 'Unknown type')}`);
+                bomb.destroy();
+            }
+
         } catch (error) {
             console.error(`Error cleaning up bomb resources:`, error);
         }

@@ -411,11 +411,7 @@ class UIScene extends Phaser.Scene {
         const revealed = this.add.text(960, 300, `Revealed: ${data.percentage}%`, { font: '40px Arial', fill: '#fff', stroke: '#000', strokeThickness: 4 }).setOrigin(0.5);
         
         this.containers.victory.add([title, revealed]);
-<<<<<<< HEAD
-        
-=======
-
->>>>>>> 7e3f691b0351599926fa6cf036ebfbfe68df0282
+              
         // Star ranking logic
         let stars = 0;
         if (data.percentage >= 100) {
