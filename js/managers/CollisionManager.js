@@ -244,6 +244,7 @@ class CollisionManager {
      * @returns {{processed: boolean, hasExploded: boolean, bombStuck: boolean}} Result of the collision.
      */
     _handleBombToBlockCollision(activeBomb, block, bombType, bombX, bombY) {
+<<<<<<< HEAD
         let effectProcessedThisCall = false;
         let overallHasExploded = false; // Use a different name to avoid confusion with bomb's property
         let overallBombStuck = false;
@@ -276,6 +277,38 @@ class CollisionManager {
         // For now, keeping it here means the bomb's onHitBlock might run *after* dynamite explodes.
         if (block.blockType === 'dynamite' &&
             (activeBomb.bombType === this.scene.BOMB_TYPES.BLAST || activeBomb.bombType === this.scene.BOMB_TYPES.SHATTERER)) {
+=======
+        let hasExploded = false;
+        let bombStuck = false;
+        let effectProcessedThisCall = false; // Initialize this
+
+        activeBomb.hasHitIceBlock = true;
+        if (this.debugMode) console.log("[CollisionManager._handleBombToBlockCollision] Bomb hit ice block.");
+
+        // Bouncy block (non-border)
+        if (block.blockType === 'bouncy') {
+            const bombTypeFromActive = activeBomb.bombType || this.scene.BOMB_TYPES.BLAST;
+            if (bombTypeFromActive !== this.scene.BOMB_TYPES.STICKY) {
+                if (activeBomb.body && typeof this.handleBouncyBlock === 'function') {
+                    this.handleBouncyBlock(block, activeBomb);
+                } else {
+                    if (!activeBomb.body) console.warn("[CollisionManager._handleBombToBlockCollision] Active bomb has no body for bouncy collision.");
+                    if (typeof this.handleBouncyBlock !== 'function') console.warn("[CollisionManager._handleBombToBlockCollision] CollisionManager.handleBouncyBlock not found for bouncy ice block!");
+                }
+                if (activeBomb.bombType === this.scene.BOMB_TYPES.RICOCHET) {
+                    activeBomb.isRicochet = true;
+                    activeBomb.lastBounceTime = Date.now();
+                    activeBomb.lastBounceX = activeBomb.x;
+                    activeBomb.lastBounceY = activeBomb.y;
+                }
+                return { processed: true, hasExploded: false, bombStuck: false }; // Bounced
+            }
+        }
+
+        // Dynamite block
+        if (block.blockType === 'dynamite' &&
+            (bombType === this.scene.BOMB_TYPES.BLAST || bombType === this.scene.BOMB_TYPES.SHATTERER)) {
+>>>>>>> 7e3f691b0351599926fa6cf036ebfbfe68df0282
             if (typeof this.scene.createDynamiteDestroyEffect === 'function') {
                 this.scene.createDynamiteDestroyEffect(block.x, block.y);
             }
@@ -285,6 +318,7 @@ class CollisionManager {
             if (this.scene.bombUtils && typeof this.scene.bombUtils.destroyIceBlock === 'function') {
                 this.scene.bombUtils.destroyIceBlock(block);
             }
+<<<<<<< HEAD
             effectProcessedThisCall = true;
             // The original bomb (blast/shatterer) might still explode based on its own onHitBlock logic.
         }
@@ -320,6 +354,122 @@ class CollisionManager {
         }
         
         return { processed: effectProcessedThisCall, hasExploded: overallHasExploded, bombStuck: overallBombStuck };
+=======
+            effectProcessedThisCall = true; 
+            // Note: The original bomb that hit the dynamite might still need to explode based on its own type.
+            // This logic currently doesn't make the *original* bomb explode here, only the dynamite.
+        }
+
+        // If the bomb was already marked as exploded (e.g. by hitting dynamite, or in a previous pair processing for multi-hit bombs if that were a thing)
+        // and it's not a type that persists (like sticky or driller), then don't re-apply its effect.
+        if (activeBomb.hasExploded && bombType !== this.scene.BOMB_TYPES.STICKY && bombType !== this.scene.BOMB_TYPES.DRILLER) {
+             return { processed: effectProcessedThisCall, hasExploded: true, bombStuck: false }; // Return current state
+        }
+
+        // General bomb effect processing
+        // Set default assumption, then override for sticky/driller.
+        // This flag is critical for the logic below.
+        let originalBombShouldExplode = true; 
+
+        try {
+            if (!this.scene.bombUtils) {
+                console.error("[CollisionManager._handleBombToBlockCollision] this.scene.bombUtils is not defined!");
+                activeBomb.hasExploded = true; // Ensure it's marked
+                return { processed: true, hasExploded: true, bombStuck: false }; // Critical failure
+            }
+
+            switch (bombType) {
+                case this.scene.BOMB_TYPES.BLAST:
+                    if (this.debugMode) console.log("[CollisionManager._handleBombToBlockCollision] Handling BLAST bomb.");
+                    this.scene.bombUtils.handleBlastBomb(bombX, bombY);
+                    hasExploded = true;
+                    break;
+                case this.scene.BOMB_TYPES.PIERCER:
+                    let velocity = (activeBomb && activeBomb.body) ? activeBomb.body.velocity : { x: 0, y: 1 };
+                    if (this.debugMode) console.log("[CollisionManager._handleBombToBlockCollision] Handling PIERCER bomb.");
+                    this.scene.bombUtils.handlePiercerBomb(bombX, bombY, velocity);
+                    hasExploded = true;
+                    break;
+                case this.scene.BOMB_TYPES.CLUSTER:
+                    if (this.debugMode) console.log("[CollisionManager._handleBombToBlockCollision] Handling CLUSTER bomb.");
+                    this.scene.bombUtils.handleClusterBomb(bombX, bombY);
+                    hasExploded = true;
+                    break;
+                case this.scene.BOMB_TYPES.STICKY:
+                    originalBombShouldExplode = false; // Sticky bombs stick, don't explode on this contact
+                    activeBomb.isSticky = true;
+                    if (this.debugMode) console.log("[CollisionManager._handleBombToBlockCollision] Handling STICKY bomb.");
+                    if (typeof this.scene.bombUtils.handleStickyBomb === 'function') {
+                        this.scene.bombUtils.handleStickyBomb(bombX, bombY, block);
+                    } else if (typeof this.scene.handleStickyBomb === 'function') { 
+                        this.scene.handleStickyBomb(bombX, bombY, block);
+                    } else {
+                        console.warn("[CollisionManager._handleBombToBlockCollision] No handler for STICKY bomb!");
+                        this.scene.bombUtils.handleBlastBomb(bombX, bombY); 
+                        hasExploded = true; originalBombShouldExplode = true; 
+                    }
+                    bombStuck = true;
+                    break;
+                case this.scene.BOMB_TYPES.SHATTERER:
+                    if (this.debugMode) console.log("[CollisionManager._handleBombToBlockCollision] Handling SHATTERER bomb.");
+                    this.scene.bombUtils.handleShattererBomb(bombX, bombY);
+                    hasExploded = true;
+                    break;
+                case this.scene.BOMB_TYPES.DRILLER:
+                    originalBombShouldExplode = false; // Driller bombs drill
+                    activeBomb.isDriller = true;
+                    if (this.debugMode) console.log("[CollisionManager._handleBombToBlockCollision] Handling DRILLER bomb.");
+                    let drillerBombInstance = null;
+                    let velocityX_drill = 0, velocityY_drill = 0;
+                    if (activeBomb && activeBomb.body && activeBomb.body.velocity) {
+                        velocityX_drill = activeBomb.body.velocity.x;
+                        velocityY_drill = activeBomb.body.velocity.y;
+                        activeBomb.storedVelocityX = velocityX_drill;
+                        activeBomb.storedVelocityY = velocityY_drill;
+                    }
+                    if (this.scene.bombUtils && typeof this.scene.bombUtils.handleDrillerBomb === 'function') {
+                        drillerBombInstance = this.scene.bombUtils.handleDrillerBomb(activeBomb, bombX, bombY, block, velocityX_drill, velocityY_drill);
+                    } else {
+                        console.warn("[CollisionManager._handleBombToBlockCollision] Critical: this.scene.bombUtils.handleDrillerBomb not found! Defaulting to blast.");
+                        this.scene.bombUtils.handleBlastBomb(bombX, bombY); 
+                        hasExploded = true; originalBombShouldExplode = true;
+                    }
+                    if (drillerBombInstance && this.scene.activeDrillerBombs && !this.scene.activeDrillerBombs.includes(drillerBombInstance)) {
+                        this.scene.activeDrillerBombs.push(drillerBombInstance);
+                    }
+                    bombStuck = true; 
+                    break;
+                case this.scene.BOMB_TYPES.RICOCHET:
+                    originalBombShouldExplode = false; // Ricochet bombs do not explode on normal block contact
+                    activeBomb.isRicochet = true; // Ensure ricochet status is maintained/set
+                    if (this.debugMode) console.log("[CollisionManager._handleBombToBlockCollision] Handling RICOCHET bomb contact with block. It should bounce.");
+                    // Physics engine handles the bounce based on bomb's restitution properties.
+                    // No specific explosion or sticking logic here.
+                    hasExploded = false;
+                    bombStuck = false;
+                    // It might be useful to call handleBouncyBlock if we want consistent visual/audio cues for ricochet hits on any block
+                    // For now, just letting physics handle it.
+                    if (this.handleBouncyBlock && block && activeBomb) {
+                         // Treat all blocks like bouncy for ricochet for effect, but don't change physics outcomes here.
+                         this.handleBouncyBlock(block, activeBomb);
+                    }
+                    break;
+                default:
+                    if (this.debugMode) console.log(`[CollisionManager._handleBombToBlockCollision] Unknown bomb type: ${bombType}, using BLAST.`);
+                    this.scene.bombUtils.handleBlastBomb(bombX, bombY);
+                    hasExploded = true;
+                    break;
+            }
+            effectProcessedThisCall = true; // Mark that a switch case was handled
+        } catch (error_bomb_type) {
+            console.error("[CollisionManager._handleBombToBlockCollision] Error handling bomb type:", error_bomb_type, "Bomb Type:", bombType);
+            hasExploded = true; // Assume it exploded if error occurs
+        }
+        
+        activeBomb.hasExploded = originalBombShouldExplode ? hasExploded : false; // Set the bomb's final state
+        
+        return { processed: effectProcessedThisCall, hasExploded: activeBomb.hasExploded, bombStuck };
+>>>>>>> 7e3f691b0351599926fa6cf036ebfbfe68df0282
     }
 
     // New method to handle bouncy block reflections

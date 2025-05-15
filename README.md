@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 # Beauty Ice Breaker
 
 A Phaser-based game where players use a slingshot to launch bombs at ice blocks covering a character silhouette.
@@ -159,3 +160,7 @@ If you see CORS errors in the browser console, it means you're trying to open th
 - Release to fire
 - Select different bomb types from the bottom panel
 - Clear at least 80% of the ice to complete each level 
+=======
+# BulletBullet
+BulletBullet
+>>>>>>> 7e3f691b0351599926fa6cf036ebfbfe68df0282

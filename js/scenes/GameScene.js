@@ -106,10 +106,13 @@
         try {
             console.log(`GameScene: Creating scene for level ${this.currentLevel}`);
             
+<<<<<<< HEAD
             // Initialize utilities early, before clearResources might need them
             this.blockUtils = new BlockUtils(this);
             this.bombUtils = new BombUtils(this);
 
+=======
+>>>>>>> 7e3f691b0351599926fa6cf036ebfbfe68df0282
             // Clear any existing resources to prevent memory leaks
             this.clearResources();
             
@@ -598,6 +601,7 @@
         switch(blockType) {
             case this.blockTypes.TYPES.ETERNAL:
                 block.hitsLeft = this.blockTypes.getHitPoints(blockType);
+<<<<<<< HEAD
                 veilColor = this.blockTypes.getColor(blockType); // Should be distinct from BlockTypes.js
                 veilAlpha = this.blockTypes.getAlpha(blockType); // Should be high from BlockTypes.js
                 // Add a unique visual: e.g., a constant bright border
@@ -620,6 +624,29 @@
                     repeat: -1,
                     duration: 500 // Faster pulse
                 });
+=======
+                veilColor = this.blockTypes.getColor(blockType);
+                veilAlpha = this.blockTypes.getAlpha(blockType);
+                break;
+            case this.blockTypes.TYPES.STRONG:
+                block.hitsLeft = this.blockTypes.getHitPoints(blockType);
+                veilColor = this.blockTypes.getColor(blockType);
+                veilAlpha = this.blockTypes.getAlpha(blockType);
+                break;
+            case this.blockTypes.TYPES.DYNAMITE:
+                block.hitsLeft = this.blockTypes.getHitPoints(blockType);
+                veilColor = this.blockTypes.getColor(blockType);
+                veilAlpha = this.blockTypes.getAlpha(blockType);
+                // Add a bit of pulsing to the dynamite block
+                this.tweens.add({
+                    targets: block,
+                    alpha: 0.7,
+                    yoyo: true,
+                    repeat: -1,
+                    duration: 600
+                });
+                // Track dynamite blocks specifically
+>>>>>>> 7e3f691b0351599926fa6cf036ebfbfe68df0282
                 if (!this.dynamiteBlocks) {
                     this.dynamiteBlocks = [];
                 }
@@ -646,12 +673,17 @@
                 veilAlpha = this.blockTypes.getAlpha(this.blockTypes.TYPES.STANDARD);
         }
         
+<<<<<<< HEAD
         block.setAlpha(0.5); // Physical block is semi-transparent
         
         // Force all veils to 50% transparency as per user request
         // Changing to 25% (twice more transparent)
         veilAlpha = 0.25;
 
+=======
+        block.setAlpha(0.5);
+        
+>>>>>>> 7e3f691b0351599926fa6cf036ebfbfe68df0282
         // Create a blue veil rectangle for this block with type-specific color
         const blueVeil = this.add.rectangle(
             x, 
@@ -662,6 +694,7 @@
             veilAlpha
         );
         
+<<<<<<< HEAD
         // Add an ice-like texture effect with highlights - standard for all
         blueVeil.setStrokeStyle(2, 0xffffff, 0.3); // Default subtle white border
 
@@ -684,6 +717,11 @@
         }
         // --- End enhancements ---
 
+=======
+        // Add an ice-like texture effect with highlights
+        blueVeil.setStrokeStyle(2, 0xffffff, 0.3); // Add a subtle white border
+        
+>>>>>>> 7e3f691b0351599926fa6cf036ebfbfe68df0282
         // Add a slight random rotation for a more natural ice look
         if (Math.random() < 0.5) {
             blueVeil.setRotation(Math.random() * 0.2 - 0.1);
@@ -717,12 +755,31 @@
         
         // Add random inner lines/cracks simulation with slight opacity changes
         // This is simulated by making some veils slightly more transparent in certain parts
+<<<<<<< HEAD
         /*
+=======
+>>>>>>> 7e3f691b0351599926fa6cf036ebfbfe68df0282
         if (Math.random() < 0.3) {
             // Around 30% of blocks will have a slightly different opacity
             veil.setAlpha(veil.alpha * (0.6 + Math.random() * 0.15));
         }
+<<<<<<< HEAD
         */
+=======
+        
+        // Apply a random slight tint variation to some blocks for more natural appearance
+        if (Math.random() < 0.4) {
+            // Apply slightly different tints to some blocks
+            const tintOptions = [
+                0xc8e0ff, // Very light blue 
+                0xa0cfff, // Light blue
+                0xb5e0ff, // Pale blue
+                0xd0f0ff  // Ice blue
+            ];
+            const selectedTint = tintOptions[Math.floor(Math.random() * tintOptions.length)];
+            veil.setFillStyle(selectedTint, veil.alpha);
+        }
+>>>>>>> 7e3f691b0351599926fa6cf036ebfbfe68df0282
         
         // Create a shimmer/highlight effect for some blocks
         if (Math.random() < 0.2) { // Apply to about 20% of blocks
@@ -2036,6 +2093,7 @@
         if (!this.activeStickyBombs) {
             this.activeStickyBombs = [];
         }
+<<<<<<< HEAD
         if (!this.activeDrillerBombs) { // Ensure activeDrillerBombs is initialized
             this.activeDrillerBombs = [];
         }
@@ -2051,12 +2109,26 @@
                 console.log("[GameScene.triggerStickyBomb] Triggering STICKY bomb at", stickyBombData.x, stickyBombData.y, "by explosion at", x, y);
                 stickyBombData.isActive = false; // Mark as triggered
                 allTriggeredBombsData.push(stickyBombData);
+=======
+
+        const allTriggeredBombs = [];
+        
+        // Check for regular sticky bombs
+        this.activeStickyBombs = this.activeStickyBombs.filter(stickyBomb => {
+            if (!stickyBomb || !stickyBomb.scene) return false; // Already cleaned up
+
+            const distance = Phaser.Math.Distance.Between(x, y, stickyBomb.x, stickyBomb.y);
+            if (distance < radius) {
+                console.log("Triggering sticky bomb at", stickyBomb.x, stickyBomb.y, "by explosion at", x, y);
+                allTriggeredBombs.push(stickyBomb);
+>>>>>>> 7e3f691b0351599926fa6cf036ebfbfe68df0282
                 return false; // Remove from active list
             }
             return true; // Keep in active list
         });
         
         // Check for active driller bombs
+<<<<<<< HEAD
         this.activeDrillerBombs = this.activeDrillerBombs.filter(drillerData => {
             if (!drillerData || !drillerData.associatedBombInstance || !drillerData.associatedBombInstance.scene) {
                  console.log("[GameScene.triggerStickyBomb] Filtering out invalid drillerData (no instance or scene):", drillerData ? drillerData.uniqueId : "N/A");
@@ -2110,6 +2182,86 @@
         });
         
         return allTriggeredBombsData.length > 0;
+=======
+        if (!this.activeDrillerBombs) {
+            this.activeDrillerBombs = [];
+        }
+        this.activeDrillerBombs = this.activeDrillerBombs.filter(drillerBombData => {
+            if (!drillerBombData || !drillerBombData.associatedBombInstance || !drillerBombData.associatedBombInstance.scene) return false;
+            const distance = Phaser.Math.Distance.Between(x, y, drillerBombData.x, drillerBombData.y);
+            if (distance < radius) {
+                console.log("Triggering driller bomb at", drillerBombData.x, drillerBombData.y, "by explosion at", x, y);
+                // Add a property to distinguish it or ensure existing `isDriller` is on the object pushed to allTriggeredBombs
+                // The drillerBombData itself already contains the necessary x, y, and implicitly isDriller.
+                // We might need to ensure the object pushed to allTriggeredBombs has a common structure if not already.
+                // For now, let's assume `drillerBombData` has an `isDriller` flag or can be identified.
+                // We'll push the drillerBombData object itself, which handleDrillerBomb in BombUtils creates.
+                // Ensure it has an `isDriller` property for the forEach loop below.
+                // The drillerBombData itself already contains the necessary x, y, and implicitly isDriller.
+                // We might need to ensure the object pushed to allTriggeredBombs has a common structure if not already.
+                // For now, let's assume `drillerBombData` has an `isDriller` flag or can be identified.
+                // We'll push the drillerBombData object itself, which handleDrillerBomb in BombUtils creates.
+                // Ensure it has an `isDriller` property for the forEach loop below.
+                drillerBombData.isDriller = true; // Explicitly set or confirm it exists
+                allTriggeredBombs.push(drillerBombData);
+                return false; // Remove from active list
+            }
+            return true; // Keep in active list
+        });
+
+        // Now process all triggered bombs
+        allTriggeredBombs.forEach(bomb => {
+            // Process delayed explosion based on bomb type
+            if (bomb.isDriller) {
+                // Driller bombs need a drill explosion
+                this.time.delayedCall(300, () => {
+                    if (!bomb.isActive) return; // Already handled or cleaned up
+                    this.bombUtils.createDrillerExplosion(bomb.x, bomb.y); // bomb is drillerBombData
+                    
+                    // Specific cleanup for drillerBombData when triggered by another explosion
+                    if (bomb.timer) bomb.timer.remove();
+                    if (bomb.drillIntervalTimer) bomb.drillIntervalTimer.remove();
+                    
+                    // Cleanup the associated Phaser GameObject
+                    if (bomb.associatedBombInstance && bomb.associatedBombInstance.scene) {
+                        // Call cleanupBombResources on the GameObject for its specific visual effects
+                        this.bombUtils.cleanupBombResources(bomb.associatedBombInstance);
+                        bomb.associatedBombInstance.destroy();
+                        bomb.associatedBombInstance = null;
+                    }
+                    bomb.isActive = false; // Mark data object as inactive/processed
+                });
+            } else {
+                // Regular sticky bombs get a large explosion after a delay
+                this.time.delayedCall(300, () => {
+                    // Create large explosion at bomb's position
+                    // Since createLargeExplosion was removed from GameScene, 
+                    // this should now also call bombUtils
+                    this.bombUtils.createLargeExplosion(bomb.x, bomb.y);
+                    
+                    // Destroy blocks in a large radius
+                    const explosionRadius = bomb.explosionRadius || 200;
+                    this.bombUtils.destroyBlocksInRadius(bomb.x, bomb.y, explosionRadius);
+                    
+                    // Clean up resources
+                    this.bombUtils.cleanupBombResources(bomb);
+                });
+            }
+        }); // End of allTriggeredBombs.forEach
+        
+        // Remove triggered bombs from the active array (should be AFTER the forEach loop)
+        if (allTriggeredBombs.length > 0) {
+            this.activeStickyBombs = this.activeStickyBombs.filter(bomb => 
+                !allTriggeredBombs.includes(bomb)
+            );
+            // Also filter activeDrillerBombs
+            this.activeDrillerBombs = this.activeDrillerBombs.filter(bomb => 
+                !allTriggeredBombs.includes(bomb)
+            );
+        }
+        
+        return allTriggeredBombs.length > 0;
+>>>>>>> 7e3f691b0351599926fa6cf036ebfbfe68df0282
     }
     
     // Method destroyBlocksWithShatterer (previously around lines 2084-2149) 
@@ -2435,7 +2587,11 @@
                         blockSize,
                         blockSize,
                         0x0033aa, // Deep blue color
+<<<<<<< HEAD
                         0.35       // Alpha changed from 0.7 to 0.35
+=======
+                        0.7
+>>>>>>> 7e3f691b0351599926fa6cf036ebfbfe68df0282
                     );
                     
                     veilBlock.setDepth(2);
@@ -2481,7 +2637,11 @@
                 this.chibiImage.width,
                 this.chibiImage.height,
                 0x0033aa,
+<<<<<<< HEAD
                 0.35          // Alpha changed from 0.7 to 0.35
+=======
+                0.7
+>>>>>>> 7e3f691b0351599926fa6cf036ebfbfe68df0282
             ).setDepth(2);
         }
     }
@@ -3101,10 +3261,17 @@
         this.activeStickyBombs = [];
         
         // Initialize block utilities
+<<<<<<< HEAD
         //this.blockUtils = new BlockUtils(this);
         
         // Initialize bomb utilities
         //this.bombUtils = new BombUtils(this);
+=======
+        this.blockUtils = new BlockUtils(this);
+        
+        // Initialize bomb utilities
+        this.bombUtils = new BombUtils(this);
+>>>>>>> 7e3f691b0351599926fa6cf036ebfbfe68df0282
         
         // Create game objects
         this.createBackground();

@@ -649,7 +649,11 @@ class BombLauncher {
             DRILLER: 'driller_bomb',
             RICOCHET: 'ricochet_bomb'
         };
+<<<<<<< HEAD
         
+=======
+
+>>>>>>> 7e3f691b0351599926fa6cf036ebfbfe68df0282
         try {
             // Ensure pointer has valid x and y coordinates
             if (pointer.x === undefined || pointer.y === undefined) {
@@ -687,7 +691,11 @@ class BombLauncher {
             const bombX = this.bomb.x;
             const bombY = this.bomb.y;
             const bombType = this.bomb.bombType || this.validateBombType(this.bomb.texture.key);
+<<<<<<< HEAD
             
+=======
+
+>>>>>>> 7e3f691b0351599926fa6cf036ebfbfe68df0282
             // Store any existing countdownText for transfer to the dynamic bomb
             let countdownTextTransfer = null;
             if (this.bomb.countdownText) {
@@ -699,12 +707,20 @@ class BombLauncher {
                 countdownEventTransfer = this.bomb.countdown;
                 this.bomb.countdown = null; // Detach from old bomb
             }
+<<<<<<< HEAD
             
+=======
+
+>>>>>>> 7e3f691b0351599926fa6cf036ebfbfe68df0282
             // Store the bombId if it exists (for ricochet bombs)
             const bombId = this.bomb.bombId;
 
             // Clean up the static bomb, but keep the countdown text
+<<<<<<< HEAD
                 this.bomb.destroy();
+=======
+            this.bomb.destroy();
+>>>>>>> 7e3f691b0351599926fa6cf036ebfbfe68df0282
             this.bomb = null; // Nullify immediately
             
             // Set bomb properties based on type - match original settings
@@ -762,6 +778,7 @@ class BombLauncher {
             this.bomb.isAtSlingshot = false;
             this.bomb.hasHitIceBlock = false; // Reset this flag
 
+<<<<<<< HEAD
             // Attach collision handling logic directly to the bomb instance
             this.bomb.onHitBlock = function(block, collisionManagerInstance) {
                 // 'this' refers to the bomb instance.
@@ -875,6 +892,8 @@ class BombLauncher {
                 return { processed: effectProcessedThisCall, hasExploded: hasExploded, bombStuck: bombStuck };
             };
 
+=======
+>>>>>>> 7e3f691b0351599926fa6cf036ebfbfe68df0282
             // Transfer the bombId if it exists (for ricochet bombs from GameScene.createDynamicBomb)
             if (bombId) {
                 this.bomb.bombId = bombId;
@@ -911,6 +930,7 @@ class BombLauncher {
                     this.bomb.explosionTime = this.bomb.bounceStartTime + countdownDuration;
 
 
+<<<<<<< HEAD
                 this.bomb.countdownText = this.scene.add.text(bombX, bombY - 30, '5.0', {
                         font: '24px Arial', // Matched from BombLauncher's original Ricochet setup
                     fill: '#FFFFFF',
@@ -922,10 +942,24 @@ class BombLauncher {
                 this.bomb.countdown = this.scene.time.addEvent({
                     delay: 100, // Update every 100ms
                     callback: () => {
+=======
+                    this.bomb.countdownText = this.scene.add.text(bombX, bombY - 30, '5.0', {
+                        font: '24px Arial', // Matched from BombLauncher's original Ricochet setup
+                        fill: '#FFFFFF',
+                        stroke: '#000000',
+                        strokeThickness: 4,
+                        fontWeight: 'bold' // Matched
+                    }).setOrigin(0.5).setDepth(20); // Matched
+                    
+                    this.bomb.countdown = this.scene.time.addEvent({
+                        delay: 100, // Update every 100ms
+                        callback: () => {
+>>>>>>> 7e3f691b0351599926fa6cf036ebfbfe68df0282
                             if (!this.bomb || !this.bomb.scene || this.bomb.hasExploded) { // Check hasExploded
                                 if (this.bomb && this.bomb.countdown) this.bomb.countdown.remove(); // Stop event if bomb exploded
                                 return;
                             }
+<<<<<<< HEAD
 
                         const elapsed = Date.now() - this.bomb.bounceStartTime;
                         const remaining = Math.max(0, (this.bomb.bounceDuration - elapsed) / 1000);
@@ -934,6 +968,16 @@ class BombLauncher {
                             this.bomb.countdownText.setText(remaining.toFixed(1));
                             this.bomb.countdownText.setPosition(this.bomb.x, this.bomb.y - 30);
 
+=======
+                            
+                            const elapsed = Date.now() - this.bomb.bounceStartTime;
+                            const remaining = Math.max(0, (this.bomb.bounceDuration - elapsed) / 1000);
+                            
+                            if (this.bomb.countdownText && this.bomb.countdownText.scene) {
+                                this.bomb.countdownText.setText(remaining.toFixed(1));
+                                this.bomb.countdownText.setPosition(this.bomb.x, this.bomb.y - 30);
+                                
+>>>>>>> 7e3f691b0351599926fa6cf036ebfbfe68df0282
                                 if (remaining < 1) this.bomb.countdownText.setFill('#FF0000');
                                 else if (remaining < 2) this.bomb.countdownText.setFill('#FFFF00');
                                 else this.bomb.countdownText.setFill('#FFFFFF'); // Reset color
@@ -956,8 +1000,13 @@ class BombLauncher {
                             }
                         },
                         callbackScope: this, // Important: callbackScope is this BombLauncher
+<<<<<<< HEAD
                     loop: true
                 });
+=======
+                        loop: true
+                    });
+>>>>>>> 7e3f691b0351599926fa6cf036ebfbfe68df0282
                      // Add trail if scene has particle system
                     if (this.scene.add.particles) {
                         try {
@@ -997,7 +1046,11 @@ class BombLauncher {
                 this.scene.bombState.active = true;
                 this.scene.bombState.lastBombFired = this.bombState.lastBombFired; // Use the same timestamp
             }
+<<<<<<< HEAD
             
+=======
+
+>>>>>>> 7e3f691b0351599926fa6cf036ebfbfe68df0282
             // Set bomb creation pending flag to true for a while, preventing immediate bomb recreation
             this.bombState.bombCreationPending = true;
             this.scene.time.delayedCall(1000, () => {

@@ -282,6 +282,7 @@ class BombInputHandler {
                 console.log("BombInputHandler: Bomb launched via BombLauncher.");
             }
             // Decrement general shot count
+<<<<<<< HEAD
                     this.scene.shotsRemaining--;
                     this.scene.events.emit('updateShots', this.scene.shotsRemaining);
                     
@@ -289,13 +290,26 @@ class BombInputHandler {
             if (this.scene.decrementBombCount && typeof this.scene.decrementBombCount === 'function') {
                     this.scene.decrementBombCount(currentBombType);
                         } else {
+=======
+            this.scene.shotsRemaining--;
+            this.scene.events.emit('updateShots', this.scene.shotsRemaining);
+
+            // Decrement count for the specific bomb type
+            if (this.scene.decrementBombCount && typeof this.scene.decrementBombCount === 'function') {
+                this.scene.decrementBombCount(currentBombType);
+            } else {
+>>>>>>> 7e3f691b0351599926fa6cf036ebfbfe68df0282
                 console.warn("GameScene.decrementBombCount is not available.");
             }
             
             // Play launch sound
             if (this.scene.audioManager && this.scene.audioManager.playSound) {
                 this.scene.audioManager.playSound('launch', { volume: 0.5 });
+<<<<<<< HEAD
                 }
+=======
+            }
+>>>>>>> 7e3f691b0351599926fa6cf036ebfbfe68df0282
 
         } else {
             if (this.scene.debugMode) {

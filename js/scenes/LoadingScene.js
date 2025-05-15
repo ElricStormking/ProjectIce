@@ -10,6 +10,7 @@ class LoadingScene extends Phaser.Scene {
         console.log(`LoadingScene: Initializing for level ${this.levelNumber}`);
     }
 
+<<<<<<< HEAD
     createSharedProceduralAssets() {
         // Content from BootScene's createShapes() will go here
         // Create a simple blue background for startup screens
@@ -102,15 +103,22 @@ class LoadingScene extends Phaser.Scene {
         console.log("LoadingScene: Shared procedural assets created.");
     }
 
+=======
+>>>>>>> 7e3f691b0351599926fa6cf036ebfbfe68df0282
     preload() {
         // Add a simple dark background
         this.cameras.main.setBackgroundColor('#000000');
         
+<<<<<<< HEAD
         // Create shared procedural assets (moved from BootScene)
         this.createSharedProceduralAssets();
 
         // Create the bomb textures programmatically first, before any loading occurs
         this.createBombTextures(); // This is the primary call for bomb textures
+=======
+        // Create the bomb textures programmatically first, before any loading occurs
+        this.createBombTextures();
+>>>>>>> 7e3f691b0351599926fa6cf036ebfbfe68df0282
         
         // Display level information
         const levelInfoText = this.add.text(
@@ -235,7 +243,11 @@ class LoadingScene extends Phaser.Scene {
             this.load.image('impact_particle', 'assets/images/impact_particle.png');
             
             // Generate bomb textures programmatically instead of loading images
+<<<<<<< HEAD
             // this.createBombTextures(); // REMOVED: Redundant call, already called above
+=======
+            this.createBombTextures();
+>>>>>>> 7e3f691b0351599926fa6cf036ebfbfe68df0282
             
             // Load audio files with simpler approach
             try {
