@@ -1,13 +1,12 @@
 {
-  "availableBombs": [
-    "blast_bomb",
-    "piercer_bomb",
-    "ricochet_bomb"
-  ],
   "bombCounts": {
     "blast_bomb": 3,
     "piercer_bomb": 2,
+    "cluster_bomb": 0,
+    "sticky_bomb": 0,
+    "shatterer_bomb": 1,
+    "driller_bomb": 0,
     "ricochet_bomb": 2
   },
   "unlockedBomb": "piercer_bomb"
-} 
+}

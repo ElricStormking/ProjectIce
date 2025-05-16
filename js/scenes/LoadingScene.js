@@ -7,7 +7,7 @@ class LoadingScene extends Phaser.Scene {
     init(data) {
         // Get level number from scene data
         this.levelNumber = data.levelNumber || 1;
-        console.log(`LoadingScene: Initializing for level ${this.levelNumber}`);
+        console.log(`LoadingScene: Initializing for level ${this.levelNumber}. Received data:`, data);
     }
 
     createSharedProceduralAssets() {

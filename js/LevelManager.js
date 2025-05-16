@@ -14,7 +14,9 @@ class LevelManager {
             victoryBackgroundKey: 'victoryBackground1', // Will be dynamically set to victoryBackground{level}
             backgroundImageKey: 'background1', // Will be dynamically set to background{level}
             targetPercentage: 85,
-            bombsAvailable: { // Default bombs if not specified in level_config.json
+            blockSize: 40, // Default block size, can be overridden by level_config.json
+            maxShots: 20, // Default maximum shots
+            bombsAvailable: { // Default bombs if not specified in level_config.json OR available_bombs.json
                 blast_bomb: 3,
                 piercer_bomb: 0,
                 cluster_bomb: 1,
@@ -25,7 +27,9 @@ class LevelManager {
             },
             unlockedBomb: null,
             blockLayoutPath: 'block_layout.json', // Default relative path within level folder
-            availableBombsPath: 'available_bombs.json' // Default relative path
+            availableBombsPath: 'available_bombs.json', // Default relative path
+            parsedBlockLayout: null, // To store loaded block layout
+            parsedAvailableBombs: null // To store loaded available bombs
         };
 
         // Initialize defaultLevelData with a basic structure for level 1
@@ -37,11 +41,13 @@ class LevelManager {
     // Initialize the level manager and load level data
     async initialize() {
         try {
-            console.log("Initializing LevelManager...");
-            await this.loadLevelData();
+            // When initialize is called, it should operate based on the *current* this.currentLevel set by setLevel.
+            console.log(`[LevelManager.initialize] Initializing/Re-initializing. Will load data considering this.currentLevel: ${this.currentLevel}`);
+            await this.loadLevelData(); // loadLevelData loads ALL levels, then other methods use this.currentLevel to pick.
+            console.log(`[LevelManager.initialize] Finished loading all level data. Current effective level for gets is: ${this.currentLevel}`);
             return true;
         } catch (error) {
-            console.error("Error initializing LevelManager:", error);
+            console.error("[LevelManager.initialize] Error initializing LevelManager:", error);
             // Use default level data if loading fails
             this.levelData = this.defaultLevelData;
             return false;
@@ -100,29 +106,67 @@ class LevelManager {
                         this.levelData[level].victoryBackgroundKey = loadedConfig.victoryBackgroundKey || `victoryBackground${level}`;
                         this.levelData[level].backgroundImageKey = loadedConfig.backgroundImageKey || `background${level}`;
                         this.levelData[level].targetPercentage = loadedConfig.targetPercentage || this.defaultBaseLevelConfig.targetPercentage;
+                        this.levelData[level].blockSize = loadedConfig.blockSize || this.defaultBaseLevelConfig.blockSize;
+                        this.levelData[level].maxShots = loadedConfig.maxShots || this.defaultBaseLevelConfig.maxShots;
                         this.levelData[level].unlockedBomb = loadedConfig.unlockedBomb || this.defaultBaseLevelConfig.unlockedBomb;
-                        this.levelData[level].blockLayoutPath = loadedConfig.blockLayoutPath || `${this.defaultBaseLevelConfig.blockLayoutPath}`;
-                        this.levelData[level].availableBombsPath = loadedConfig.availableBombsPath || `${this.defaultBaseLevelConfig.availableBombsPath}`;
+                        this.levelData[level].blockLayoutPath = loadedConfig.blockLayoutPath || this.defaultBaseLevelConfig.blockLayoutPath;
+                        this.levelData[level].availableBombsPath = loadedConfig.availableBombsPath || this.defaultBaseLevelConfig.availableBombsPath;
 
-                        // Handle bombsAvailable: prioritize available_bombs.json, then level_config.json, then defaults
+                        // Load available_bombs.json
                         const availableBombsConfigPath = `assets/images/level${level}/${this.levelData[level].availableBombsPath}`;
                         try {
                             const bombsResponse = await fetch(availableBombsConfigPath);
                             if (bombsResponse.ok) {
-                                this.levelData[level].bombsAvailable = await bombsResponse.json();
+                                const bombsData = await bombsResponse.json();
+                                // Adapt to the new structure: { availableBombs: [], bombCounts: {}, unlockedBomb: "" }
+                                if (bombsData && bombsData.bombCounts) {
+                                    this.levelData[level].parsedAvailableBombs = bombsData.bombCounts;
+                                    if (bombsData.unlockedBomb) { // Prioritize unlockedBomb from this file
+                                        this.levelData[level].unlockedBomb = bombsData.unlockedBomb;
+                                    }
+                                } else {
+                                    // If structure is not as expected, try to use the root object as counts
+                                    this.levelData[level].parsedAvailableBombs = bombsData;
+                                }
                                 console.log(`Level ${level}: Loaded bombs from ${this.levelData[level].availableBombsPath}`);
                             } else {
                                 throw new Error(`Failed to fetch ${availableBombsConfigPath}`);
                             }
                         } catch (bombsError) {
-                            console.warn(`Level ${level}: Could not load bombs from ${this.levelData[level].availableBombsPath} (${bombsError.message}). Checking level_config.json...`);
+                            console.warn(`Level ${level}: Could not load bombs from ${this.levelData[level].availableBombsPath} (${bombsError.message}). Checking level_config.json for 'bombsAvailable'...`);
                             if (loadedConfig.bombsAvailable) {
-                                this.levelData[level].bombsAvailable = loadedConfig.bombsAvailable;
-                                console.log(`Level ${level}: Loaded bombs from level_config.json`);
+                                this.levelData[level].parsedAvailableBombs = loadedConfig.bombsAvailable; // Use bombsAvailable from level_config.json as fallback
+                                console.log(`Level ${level}: Loaded bombs from level_config.json's bombsAvailable field.`);
                             } else {
-                                this.levelData[level].bombsAvailable = { ...this.defaultBaseLevelConfig.bombsAvailable };
-                                console.log(`Level ${level}: Used default bomb counts.`);
+                                this.levelData[level].parsedAvailableBombs = { ...this.defaultBaseLevelConfig.bombsAvailable }; // Fallback to hardcoded defaults
+                                console.log(`Level ${level}: Used default hardcoded bomb counts.`);
                             }
+                        }
+
+                        // Load block_layout.json
+                        const blockLayoutRelativePath = this.levelData[level].blockLayoutPath; // e.g. "block_layout.json"
+                        const blockLayoutFullConfigPath = `assets/images/level${level}/${blockLayoutRelativePath}`;
+                        console.log(`Level ${level}: Attempting to load block layout from full path: ${blockLayoutFullConfigPath}`); 
+                        try {
+                            const blockLayoutResponse = await fetch(blockLayoutFullConfigPath);
+                            console.log(`Level ${level}: Fetch response for ${blockLayoutFullConfigPath} - ok: ${blockLayoutResponse.ok}, status: ${blockLayoutResponse.status}`); 
+                            if (blockLayoutResponse.ok) {
+                                const rawText = await blockLayoutResponse.text(); 
+                                console.log(`Level ${level}: Raw text from ${blockLayoutFullConfigPath} (first 500 chars): ${rawText.substring(0,500)}`);
+                                try {
+                                    this.levelData[level].parsedBlockLayout = JSON.parse(rawText); 
+                                    console.log(`Level ${level}: Successfully parsed block layout from ${blockLayoutRelativePath}. Example data: blockSize: ${this.levelData[level].parsedBlockLayout ? this.levelData[level].parsedBlockLayout.blockSize : 'N/A'}`);
+                                } catch (parseError) {
+                                    console.error(`Level ${level}: ERROR parsing JSON from ${blockLayoutFullConfigPath}:`, parseError.message); 
+                                    console.error(`Level ${level}: Raw text that failed to parse (first 500 chars): ${rawText.substring(0,500)}`);
+                                    this.levelData[level].parsedBlockLayout = null;
+                                }
+                            } else {
+                                throw new Error(`Failed to fetch ${blockLayoutFullConfigPath} (status: ${blockLayoutResponse.status})`);
+                            }
+                        } catch (layoutError) {
+                            console.warn(`Level ${level}: Could not load block layout from ${blockLayoutRelativePath} (${layoutError.message}). Block layout will be null.`);
+                            this.levelData[level].parsedBlockLayout = null; 
                         }
                         
                         console.log(`Loaded configuration for level ${level}:`, this.levelData[level]);
@@ -157,10 +201,11 @@ class LevelManager {
         defaultData.chibiImageKey = `chibi_girl${level}`;
         defaultData.victoryBackgroundKey = `victoryBackground${level}`;
         defaultData.backgroundImageKey = `background${level}`;
+        defaultData.maxShots = this.defaultBaseLevelConfig.maxShots;
         
         // Example of how bombs might change per level by default if not specified
         if (level === 1) {
-            defaultData.bombsAvailable = { blast_bomb: 3, cluster_bomb: 1, sticky_bomb: 5, shatterer_bomb: 1, driller_bomb: 3, ricochet_bomb: 0, piercer_bomb: 0 };
+            defaultData.bombsAvailable = { blast_bomb: 3, cluster_bomb: 1, sticky_bomb: 5, shatterer_bomb: 1, driller_bomb: 3, ricochet_bomb: 0 };
         } else if (level === 2) {
             defaultData.bombsAvailable = { blast_bomb: 3, piercer_bomb: 2, driller_bomb: 3, ricochet_bomb: 2, cluster_bomb: 0, sticky_bomb: 0, shatterer_bomb: 0 };
             defaultData.unlockedBomb = 'piercer_bomb';
@@ -219,12 +264,13 @@ class LevelManager {
     
     // Set a specific level
     setLevel(level) {
+        console.log(`[LevelManager.setLevel] Received level: ${level}. Current internal this.currentLevel before change: ${this.currentLevel}`);
         if (level >= 1 && level <= this.maxLevels) {
-            this.currentLevel = level;
-            console.log(`Set to level ${this.currentLevel}`);
+            this.currentLevel = parseInt(level); // Ensure it's an integer
+            console.log(`[LevelManager.setLevel] Internal this.currentLevel is NOW: ${this.currentLevel}`);
             return true;
         } else {
-            console.warn(`Invalid level number: ${level}`);
+            console.warn(`[LevelManager.setLevel] Invalid level number: ${level}. Internal this.currentLevel remains: ${this.currentLevel}`);
             return false;
         }
     }
@@ -237,20 +283,25 @@ class LevelManager {
     // Get bomb counts for the current level
     getBombCounts() {
         const levelData = this.getCurrentLevelData();
-        console.log(`Getting bomb counts for level ${this.currentLevel}:`, levelData.bombsAvailable);
+        // Use parsedAvailableBombs if available, otherwise fallback
+        const bombsToUse = levelData.parsedAvailableBombs || levelData.bombsAvailable || this.defaultLevelData[1].parsedAvailableBombs || this.defaultLevelData[1].bombsAvailable;
+        console.log(`Getting bomb counts for level ${this.currentLevel}:`, bombsToUse);
         
-        if (!levelData.bombsAvailable) {
-            console.warn(`No bomb data available for level ${this.currentLevel}, using defaults`);
-            return this.defaultLevelData[1].bombsAvailable;
+        if (!bombsToUse) {
+            console.warn(`No bomb data available for level ${this.currentLevel}, using hardcoded defaults from defaultBaseLevelConfig`);
+            return { ...this.defaultBaseLevelConfig.bombsAvailable };
         }
         
-        return levelData.bombsAvailable;
+        return bombsToUse;
     }
     
     // Get image key for the current level's chibi
     getChibiImageKey() {
+        console.log(`[LevelManager.getChibiImageKey] ENTERING. Current this.currentLevel is: ${this.currentLevel}`);
         const levelData = this.getCurrentLevelData();
-        return levelData.chibiImageKey || `chibi_girl${this.currentLevel}`;
+        const key = levelData.chibiImageKey || `chibi_girl${this.currentLevel}`;
+        console.log(`[LevelManager.getChibiImageKey] For level ${this.currentLevel}, returning key: '${key}' based on levelData:`, JSON.parse(JSON.stringify(levelData)));
+        return key;
     }
     
     // Get background key for the current level
@@ -300,6 +351,38 @@ class LevelManager {
         const levelData = this.getCurrentLevelData();
         // Path is relative to assets/images/level{X}/
         return `assets/images/level${this.currentLevel}/${levelData.availableBombsPath || 'available_bombs.json'}`;
+    }
+
+    // Method to get the parsed block layout for the current level
+    getCurrentBlockLayout() {
+        const levelData = this.getCurrentLevelData();
+        if (levelData && levelData.parsedBlockLayout) {
+            return levelData.parsedBlockLayout;
+        }
+        console.warn(`LevelManager: No parsed block layout found for level ${this.currentLevel}.`);
+        return null; // Or return a default empty layout: { blockSize: 40, gridOrigin: {x:0, y:0}, numCols: 0, numRows: 0, blocks: [] }
+    }
+
+    // Method to get the parsed available bombs for the current level
+    getCurrentAvailableBombs() {
+        const levelData = this.getCurrentLevelData();
+        if (levelData && levelData.parsedAvailableBombs) {
+            return levelData.parsedAvailableBombs;
+        }
+        console.warn(`LevelManager: No parsed available bombs found for level ${this.currentLevel}. Falling back to bombsAvailable or defaults.`);
+        return levelData.bombsAvailable || (this.defaultLevelData[1] ? this.defaultLevelData[1].bombsAvailable : null);
+    }
+    
+    // Get block size for the current level
+    getBlockSize() {
+        const levelData = this.getCurrentLevelData();
+        return levelData.blockSize || this.defaultBaseLevelConfig.blockSize;
+    }
+
+    // Get max shots for the current level
+    getMaxShots() {
+        const levelData = this.getCurrentLevelData();
+        return levelData.maxShots || this.defaultBaseLevelConfig.maxShots;
     }
 }
 

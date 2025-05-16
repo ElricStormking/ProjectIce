@@ -2,10 +2,8 @@
     constructor() {
         super({ key: 'GameScene' });
         
-        this.MAX_SHOTS = 20; // Doubled from 10 for testing
-        this.shotsRemaining = this.MAX_SHOTS;
         this.revealPercentage = 0;
-        this.targetPercentage = 85;
+        this.targetPercentage = 85; // This will be overwritten by LevelManager in create()
         this.UI_DEPTH = 1000; // UI depth for consistent layering
         this.score = 0; // Added for score tracking
         this.isInitialDataReady = false; // ADD THIS LINE
@@ -79,15 +77,7 @@
         };
         
         // Remaining bombs of each type - will be set by level manager
-        this.bombsRemaining = {
-            [this.BOMB_TYPES.BLAST]: 6,      // Doubled from 3 for testing
-            [this.BOMB_TYPES.PIERCER]: 10,   // Doubled from 5 for testing
-            [this.BOMB_TYPES.CLUSTER]: 2,    // Doubled from 1 for testing
-            [this.BOMB_TYPES.STICKY]: 10,    // Doubled from 5 for testing
-            [this.BOMB_TYPES.SHATTERER]: 2,  // Doubled from 1 for testing
-            [this.BOMB_TYPES.DRILLER]: 6,    // Doubled from 3 for testing
-            [this.BOMB_TYPES.RICOCHET]: 0    // Starts at 0, unlocked in level 2
-        };
+        this.bombsRemaining = {}; // CHANGE THIS LINE - Initialize as empty, setupBombs will populate
         
         // Current selected bomb type
         this.currentBombType = this.BOMB_TYPES.BLAST;
@@ -99,9 +89,10 @@
         this.willReadPixelsFrequently = true;
 
         this.collisionManager = null; // Add this property
+        this.isTransitioningLevel = false; // Add this flag
     }
 
-    create() {
+    async create() { // Make create method async
         console.log('[GameScene.create] Method started. Current Level:', this.currentLevel);
         try {
             console.log(`GameScene: Creating scene for level ${this.currentLevel}`);
@@ -120,6 +111,14 @@
             this.collisionManager = new CollisionManager(this);
             this.collisionManager.initialize();
             
+            // Initialize the level manager BEFORE setupGame which uses it
+            this.levelManager = new LevelManager(this);
+            this.levelManager.setLevel(this.currentLevel); // Set the level
+            await this.levelManager.initialize(); // Await initialization
+            this.targetPercentage = this.levelManager.getTargetPercentage(); // Set targetPercentage here
+            this.MAX_SHOTS = this.levelManager.getMaxShots(); // ADD THIS LINE
+            this.shotsRemaining = this.MAX_SHOTS; // ADD THIS LINE
+
             // Setup the game level first
             this.setupGame(); // This will also launch UIScene and create bomb selector
             
@@ -130,9 +129,9 @@
             // Initialize audio system EARLY using the manager
             this.initializeAudio();
             
-            // Initialize the level manager
-            this.levelManager = new LevelManager(this); // Ensure level manager is initialized
-            this.levelManager.setLevel(this.currentLevel); // Set the level
+            // Initialize the level manager -- MOVED EARLIER
+            // this.levelManager = new LevelManager(this); 
+            // this.levelManager.setLevel(this.currentLevel); 
             
                 // Now that we have the level manager initialized, setup bombs
                 this.setupBombs();
@@ -351,197 +350,88 @@
         this.iceBlocks = [];
         this.blueVeils = []; // Array to store individual blue veil rectangles
         this.dynamiteBlocks = []; // Array to track dynamite blocks specifically
-        const blockSize = 15; // Reduced to 1/4 of original size (was 60)
-        
-        // Create a container for ice blocks with depth above chibi but below UI
-        const blocksContainer = this.add.container(0, 0);
-        blocksContainer.setDepth(2);
-        
-        // Get the chibi image dimensions - no scaling
-        const imageWidth = this.chibiImage.width;
-        const imageHeight = this.chibiImage.height;
-        
-        // Calculate the image boundaries
-        const imageX = this.chibiImage.x - imageWidth / 2;
-        const imageY = this.chibiImage.y - imageHeight / 2;
-        
-        // Calculate grid dimensions
-        const cols = Math.ceil(imageWidth / blockSize);
-        const rows = Math.ceil(imageHeight / blockSize);
-        
-        console.log(`Chibi image at ${this.chibiImage.x}, ${this.chibiImage.y}`);
-        console.log(`Image calculated bounds: ${imageX}, ${imageY}, ${imageWidth}x${imageHeight}`);
-        console.log(`Creating ice blocks grid: ${cols}x${rows} over image area ${imageWidth}x${imageHeight}`);
-        
-        // Create a temporary canvas to check pixel data
-        const tempCanvas = document.createElement('canvas');
-        const tempContext = tempCanvas.getContext('2d');
-        tempCanvas.width = imageWidth;
-        tempCanvas.height = imageHeight;
-        
-        // Get the texture key of the chibi image
-        const textureKey = this.chibiImage.texture.key;
-        
-        // Get the image data
-        const frame = this.textures.getFrame(textureKey);
-        const source = frame.source.image || frame.source.canvas;
-        
-        // Draw the image to our temp canvas
-        tempContext.drawImage(source, 0, 0, imageWidth, imageHeight);
-        
-        // Alpha threshold - lower value to include more semi-transparent pixels at edges
-        const alphaThreshold = 50; // Much lower threshold to catch edge pixels
-        
-        // Sample size for checking multiple pixels in the block area
-        const sampleSize = 5; // Check more points in a 5x5 grid
-        const sampleOffset = Math.floor(blockSize / (sampleSize + 1));
-        
-        // Create a 2D grid to track where we've placed blocks
-        const blockGrid = Array(rows).fill().map(() => Array(cols).fill(false));
-        
-        // Variables to track total blocks for percentage calculations
         this.totalIceBlocks = 0;
         this.clearedIceBlocks = 0;
-        
-        // First pass: Find all core pixels that meet the alpha threshold
-        for (let row = 0; row < rows; row++) {
-            for (let col = 0; col < cols; col++) {
-                // Calculate screen position for the block
-                const blockScreenX = imageX + col * blockSize + blockSize / 2;
-                const blockScreenY = imageY + row * blockSize + blockSize / 2;
-                
-                // Sample multiple points within this block area
-                let hasVisiblePixel = false;
-                
-                for (let sx = 0; sx < sampleSize; sx++) {
-                    for (let sy = 0; sy < sampleSize; sy++) {
-                        // Calculate sampling position in the original image
-                        const offsetX = -Math.floor(sampleSize/2) + sx;
-                        const offsetY = -Math.floor(sampleSize/2) + sy;
-                        
-                        const sampleX = Math.floor(col * blockSize) + offsetX * sampleOffset;
-                        const sampleY = Math.floor(row * blockSize) + offsetY * sampleOffset;
-                        
-                        // Ensure we're within bounds
-                        if (sampleX >= 0 && sampleX < imageWidth && 
-                            sampleY >= 0 && sampleY < imageHeight) {
-                            
-                            try {
-                                const pixelData = tempContext.getImageData(sampleX, sampleY, 1, 1).data;
-                                // If any sampled pixel has alpha above threshold, mark block as visible
-                                if (pixelData[3] >= alphaThreshold) {
-                                    hasVisiblePixel = true;
-                                    break;
-                                }
-                            } catch (e) {
-                                console.error(`Error sampling pixel at ${sampleX},${sampleY}:`, e);
-                            }
+
+        const blockLayoutData = this.levelManager.getCurrentBlockLayout();
+        const currentBlockSize = this.levelManager.getBlockSize();
+
+        // ADD THIS LOG (already present from previous step, shown for context)
+        console.log(`[GameScene.createIceBlocks - Level ${this.currentLevel}] Received blockLayoutData from LevelManager:`, 
+            blockLayoutData ? JSON.stringify(blockLayoutData).substring(0, 500) + '...' : 'null or undefined',
+            `BlockSize from LevelManager: ${currentBlockSize}`
+        );
+
+        // MORE GRANULAR LOGS BEFORE THE IF
+        const cond1 = !!blockLayoutData;
+        let cond2 = false;
+        let cond3 = false;
+
+        if (cond1) {
+            console.log(`[GameScene.createIceBlocks - DEBUG PRE-IF] typeof blockLayoutData: ${typeof blockLayoutData}`);
+            cond2 = blockLayoutData.hasOwnProperty('blockPositions');
+            console.log(`[GameScene.createIceBlocks - DEBUG PRE-IF] blockLayoutData.hasOwnProperty('blockPositions'): ${cond2}`);
+            if (cond2) {
+                console.log(`[GameScene.createIceBlocks - DEBUG PRE-IF] typeof blockLayoutData.blockPositions: ${typeof blockLayoutData.blockPositions}`);
+                cond3 = Array.isArray(blockLayoutData.blockPositions);
+                console.log(`[GameScene.createIceBlocks - DEBUG PRE-IF] Array.isArray(blockLayoutData.blockPositions): ${cond3}`);
+                console.log(`[GameScene.createIceBlocks - DEBUG PRE-IF] blockLayoutData.blockPositions length: ${blockLayoutData.blockPositions ? blockLayoutData.blockPositions.length : 'N/A'}`);
+            }
+            console.log(`[GameScene.createIceBlocks - DEBUG PRE-IF] currentBlockSize value: ${currentBlockSize}, typeof: ${typeof currentBlockSize}`);
+        } else {
+            console.log(`[GameScene.createIceBlocks - DEBUG PRE-IF] blockLayoutData is null or undefined.`);
+        }
+        console.log(`[GameScene.createIceBlocks - DEBUG PRE-IF] Final conditions for IF: cond1 (blockLayoutData exists): ${cond1}, cond2 (has blockPositions): ${cond2}, cond3 (blockPositions isArray): ${cond3}`);
+        // =====
+
+        if (blockLayoutData && blockLayoutData.blockPositions && Array.isArray(blockLayoutData.blockPositions)) {
+            console.log(`[GameScene.createIceBlocks] Using absolute positions from LevelManager for level ${this.currentLevel}. Block size: ${currentBlockSize}`);
+            let totalBlocksFromLayout = 0;
+            blockLayoutData.blockPositions.forEach(typeGroup => {
+                if (typeGroup.type && Array.isArray(typeGroup.positions)) {
+                    const blockType = typeGroup.type.toUpperCase(); // Ensure type is uppercase for BlockTypes.js
+                    typeGroup.positions.forEach(pos => {
+                        if (typeof pos.x === 'number' && typeof pos.y === 'number') {
+                            // The x, y in the JSON are assumed to be the center of the block
+                            this._createSingleBlock(pos.x, pos.y, currentBlockSize, blockType);
+                            totalBlocksFromLayout++;
+                        } else {
+                            console.warn("[GameScene.createIceBlocks] Invalid position data in blockPositions:", pos);
                         }
-                    }
-                    if (hasVisiblePixel) break;
+                    });
                 }
-                
-                if (hasVisiblePixel) {
-                    blockGrid[row][col] = true;
+            });
+            this.totalIceBlocks = totalBlocksFromLayout;
+        } else if (blockLayoutData.gridOrigin && blockLayoutData.blocks) {
+             // Fallback to original grid-based parsing if blockPositions is not found but gridOrigin and blocks are
+            console.log(`[GameScene.createIceBlocks] Using gridOrigin layout from LevelManager for level ${this.currentLevel}. Block size: ${currentBlockSize}`);
+            const { gridOrigin, blocks } = blockLayoutData;
+            if (!gridOrigin || typeof gridOrigin.x !== 'number' || typeof gridOrigin.y !== 'number') {
+                console.error("[GameScene.createIceBlocks] Invalid or missing gridOrigin in block layout data. Defaulting to Chibi image position.");
+                const imageWidth = this.chibiImage.width;
+                const imageHeight = this.chibiImage.height;
+                const numCols = blockLayoutData.numCols || 10;
+                const numRows = blockLayoutData.numRows || 5;
+                gridOrigin.x = this.chibiImage.x - (numCols * currentBlockSize) / 2;
+                gridOrigin.y = this.chibiImage.y - (numRows * currentBlockSize) / 2;
+            }
+            blocks.forEach(blockData => {
+                const { type, col, row } = blockData;
+                if (typeof col !== 'number' || typeof row !== 'number' || !type) {
+                    console.warn("[GameScene.createIceBlocks] Invalid block data in layout:", blockData);
+                    return;
                 }
-            }
+                const blockScreenX = gridOrigin.x + (col * currentBlockSize) + (currentBlockSize / 2);
+                const blockScreenY = gridOrigin.y + (row * currentBlockSize) + (currentBlockSize / 2);
+                this._createSingleBlock(blockScreenX, blockScreenY, currentBlockSize, type.toUpperCase());
+            });
+            this.totalIceBlocks = blocks.length;
+        } else {
+            console.warn(`[GameScene.createIceBlocks] Block layout data for level ${this.currentLevel} is not in expected format (neither absolute nor grid). Falling back to procedural.`);
+            this.fallbackProceduralIceGeneration(); // Encapsulated old procedural logic
         }
-        
-        // Second pass: Add padding around detected pixels to ensure edges are covered
-        // This creates a thickness around the chibi image
-        const paddingAmount = 1; // How many blocks of padding to add
-        
-        // Create a copy of the grid before adding padding
-        const originalGrid = blockGrid.map(row => [...row]);
-        
-        // Add padding around each detected block
-        for (let row = 0; row < rows; row++) {
-            for (let col = 0; col < cols; col++) {
-                if (originalGrid[row][col]) {
-                    // Add padding blocks around this block
-                    for (let pr = -paddingAmount; pr <= paddingAmount; pr++) {
-                        for (let pc = -paddingAmount; pc <= paddingAmount; pc++) {
-                            const padRow = row + pr;
-                            const padCol = col + pc;
-                            
-                            // Make sure we're in bounds
-                            if (padRow >= 0 && padRow < rows && padCol >= 0 && padCol < cols) {
-                                blockGrid[padRow][padCol] = true;
-                            }
-                        }
-                    }
-                }
-            }
-        }
-        
-        // Prepare to create exactly 3 dynamite blocks
-        const dynamitePositions = [];
-        const validPositions = [];
-        
-        // Collect all valid block positions first
-        for (let row = 0; row < rows; row++) {
-            for (let col = 0; col < cols; col++) {
-                if (blockGrid[row][col]) {
-                    const blockScreenX = imageX + col * blockSize + blockSize / 2;
-                    const blockScreenY = imageY + row * blockSize + blockSize / 2;
-                    validPositions.push({x: blockScreenX, y: blockScreenY, row, col});
-                }
-            }
-        }
-        
-        // Pick 3 random positions for dynamite blocks (if we have enough blocks)
-        if (validPositions.length > 3) {
-            // Shuffle the array to get random positions
-            for (let i = validPositions.length - 1; i > 0; i--) {
-                const j = Math.floor(Math.random() * (i + 1));
-                [validPositions[i], validPositions[j]] = [validPositions[j], validPositions[i]];
-            }
-            
-            // Take the first 3 positions for dynamite
-            for (let i = 0; i < 3; i++) {
-                dynamitePositions.push({
-                    x: validPositions[i].x,
-                    y: validPositions[i].y,
-                    row: validPositions[i].row,
-                    col: validPositions[i].col
-                });
-            }
-        }
-        
-        // Third pass: Create blocks based on our grid
-        for (let row = 0; row < rows; row++) {
-            for (let col = 0; col < cols; col++) {
-                if (!blockGrid[row][col]) continue;
-                
-                // Calculate screen position for the block
-                const blockScreenX = imageX + col * blockSize + blockSize / 2;
-                const blockScreenY = imageY + row * blockSize + blockSize / 2;
-                
-                // Determine block type
-                let blockType = this.blockTypes.TYPES.STANDARD; // Default is standard
-                
-                // Check if this position is one of our dynamite positions
-                const isDynamite = dynamitePositions.some(pos => 
-                    pos.row === row && pos.col === col);
-                
-                if (isDynamite) {
-                    blockType = this.blockTypes.TYPES.DYNAMITE;
-                } else {
-                    // For non-dynamite blocks, use weighted random for other special types
-                    let blockTypeRand = Math.random();
-                    if (blockTypeRand < 0.02) {
-                        blockType = this.blockTypes.TYPES.ETERNAL;
-                    } else if (blockTypeRand < 0.08) {
-                        blockType = this.blockTypes.TYPES.STRONG;
-                    }
-                }
-                
-                // Create the block
-                this._createSingleBlock(blockScreenX, blockScreenY, blockSize, blockType);
-            }
-        }
-        
-        // Ensure chibi image remains fully opaque after adding blue veils
+
+        // Ensure chibi image remains fully opaque after adding blue veils (if any were added)
         this.chibiImage.setAlpha(1);
         
         // Reset revealed pixels counter based on total ice blocks
@@ -550,7 +440,113 @@
         
         console.log(`Created ${this.iceBlocks.length} ice blocks with blue veils`);
         // Log the number of dynamite blocks created
-        console.log(`Created exactly ${dynamitePositions.length} dynamite blocks`);
+        // console.log(`Created exactly ${dynamitePositions.length} dynamite blocks`);
+    }
+
+    // Encapsulated fallback procedural generation logic
+    fallbackProceduralIceGeneration() {
+        const legacyBlockSize = 15; // Original blockSize for procedural generation
+        const blocksContainer = this.add.container(0, 0);
+        blocksContainer.setDepth(2);
+        const imageWidth = this.chibiImage.width;
+        const imageHeight = this.chibiImage.height;
+        const imageX = this.chibiImage.x - imageWidth / 2;
+        const imageY = this.chibiImage.y - imageHeight / 2;
+        const cols = Math.ceil(imageWidth / legacyBlockSize);
+        const rows = Math.ceil(imageHeight / legacyBlockSize);
+        const tempCanvas = document.createElement('canvas');
+        const tempContext = tempCanvas.getContext('2d');
+        tempCanvas.width = imageWidth;
+        tempCanvas.height = imageHeight;
+        const textureKey = this.chibiImage.texture.key;
+        const frame = this.textures.getFrame(textureKey);
+        const source = frame.source.image || frame.source.canvas;
+        tempContext.drawImage(source, 0, 0, imageWidth, imageHeight);
+        const alphaThreshold = 50;
+        const sampleSize = 5;
+        const sampleOffset = Math.floor(legacyBlockSize / (sampleSize + 1));
+        const blockGrid = Array(rows).fill().map(() => Array(cols).fill(false));
+
+        for (let row = 0; row < rows; row++) {
+            for (let col = 0; col < cols; col++) {
+                let hasVisiblePixel = false;
+                for (let sx = 0; sx < sampleSize; sx++) {
+                    for (let sy = 0; sy < sampleSize; sy++) {
+                        const offsetX = -Math.floor(sampleSize/2) + sx;
+                        const offsetY = -Math.floor(sampleSize/2) + sy;
+                        const sampleX = Math.floor(col * legacyBlockSize) + offsetX * sampleOffset;
+                        const sampleY = Math.floor(row * legacyBlockSize) + offsetY * sampleOffset;
+                        if (sampleX >= 0 && sampleX < imageWidth && sampleY >= 0 && sampleY < imageHeight) {
+                            try {
+                                const pixelData = tempContext.getImageData(sampleX, sampleY, 1, 1).data;
+                                if (pixelData[3] >= alphaThreshold) {
+                                    hasVisiblePixel = true;
+                                    break;
+                                }
+                            } catch (e) { /* console.error(`Error sampling pixel at ${sampleX},${sampleY}:`, e); */ }
+                        }
+                    }
+                    if (hasVisiblePixel) break;
+                }
+                if (hasVisiblePixel) blockGrid[row][col] = true;
+            }
+        }
+        const paddingAmount = 1;
+        const originalGrid = blockGrid.map(r => [...r]);
+        for (let r = 0; r < rows; r++) {
+            for (let c = 0; c < cols; c++) {
+                if (originalGrid[r][c]) {
+                    for (let pr = -paddingAmount; pr <= paddingAmount; pr++) {
+                        for (let pc = -paddingAmount; pc <= paddingAmount; pc++) {
+                            const padRow = r + pr;
+                            const padCol = c + pc;
+                            if (padRow >= 0 && padRow < rows && padCol >= 0 && padCol < cols) {
+                                blockGrid[padRow][padCol] = true;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        const dynamitePositions = [];
+        const validPositions = [];
+        for (let r = 0; r < rows; r++) {
+            for (let c = 0; c < cols; c++) {
+                if (blockGrid[r][c]) {
+                    const blockScreenX = imageX + c * legacyBlockSize + legacyBlockSize / 2;
+                    const blockScreenY = imageY + r * legacyBlockSize + legacyBlockSize / 2;
+                    validPositions.push({x: blockScreenX, y: blockScreenY, row: r, col: c});
+                }
+            }
+        }
+        if (validPositions.length > 3) {
+            for (let i = validPositions.length - 1; i > 0; i--) {
+                const j = Math.floor(Math.random() * (i + 1));
+                [validPositions[i], validPositions[j]] = [validPositions[j], validPositions[i]];
+            }
+            for (let i = 0; i < 3; i++) {
+                dynamitePositions.push({ x: validPositions[i].x, y: validPositions[i].y, row: validPositions[i].row, col: validPositions[i].col });
+            }
+        }
+        for (let r = 0; r < rows; r++) {
+            for (let c = 0; c < cols; c++) {
+                if (!blockGrid[r][c]) continue;
+                const blockScreenX = imageX + c * legacyBlockSize + legacyBlockSize / 2;
+                const blockScreenY = imageY + r * legacyBlockSize + legacyBlockSize / 2;
+                let blockType = this.blockTypes.TYPES.STANDARD;
+                const isDynamite = dynamitePositions.some(pos => pos.row === r && pos.col === c);
+                if (isDynamite) {
+                    blockType = this.blockTypes.TYPES.DYNAMITE;
+                } else {
+                    let blockTypeRand = Math.random();
+                    if (blockTypeRand < 0.02) blockType = this.blockTypes.TYPES.ETERNAL;
+                    else if (blockTypeRand < 0.08) blockType = this.blockTypes.TYPES.STRONG;
+                }
+                this._createSingleBlock(blockScreenX, blockScreenY, legacyBlockSize, blockType.toUpperCase());
+            }
+        }
+        console.log(`Created ${this.iceBlocks.length} ice blocks with blue veils (procedural fallback)`);
+        this.totalIceBlocks = this.iceBlocks.length; // Ensure totalIceBlocks is set for procedural fallback
     }
 
     /**
@@ -569,16 +565,30 @@
             restitution: 0.3
         };
         
-        // Adjust properties based on block type
-        if (blockType === this.blockTypes.TYPES.BOUNCY) {
-            physicsProps.restitution = 1.0; // Bouncy blocks have high restitution
+        // Ensure blockType is valid, default to STANDARD if not
+        let typeToUse = this.blockTypes.TYPES.STANDARD; // Default to 'standard' (lowercase)
+        if (typeof blockType === 'string') {
+            const normalizedBlockType = blockType.toLowerCase(); // Convert to lowercase for comparison
+            const validBlockTypeValues = Object.values(this.blockTypes.TYPES); // e.g., ['standard', 'strong', ...]
+            
+            if (validBlockTypeValues.includes(normalizedBlockType)) {
+                typeToUse = normalizedBlockType; // Use the valid lowercase type
+                 // console.log(`[GameScene._createSingleBlock] Valid blockType: '${blockType}' (normalized to '${normalizedBlockType}')`); // Optional: Log success
+            } else {
+                console.warn(`[GameScene._createSingleBlock] Unrecognized blockType: '${blockType}' (normalized to '${normalizedBlockType}'). Defaulting to STANDARD.`);
+            }
+        } else {
+            console.warn(`[GameScene._createSingleBlock] blockType is not a string: ${blockType}. Defaulting to STANDARD.`);
         }
-        
-        // Create ice block
+        blockType = typeToUse; // Assign the determined typeToUse back to blockType for the switch statement
+
+        // Create ice block - asset 'iceBlock' is assumed to be 40x40
         const block = this.matter.add.image(x, y, 'iceBlock', null, physicsProps);
         
         // Scale the blocks to match the new size
-        block.setScale(blockSize / 40); // Original ice block is 40x40, scale up
+        // If currentBlockSize from level config is 40, scale is 1.
+        // If currentBlockSize is 20, scale is 0.5.
+        block.setScale(blockSize / 40); 
         
         // Set a slight random rotation for some blocks
         if (Math.random() < 0.3) {
@@ -598,16 +608,15 @@
         switch(blockType) {
             case this.blockTypes.TYPES.ETERNAL:
                 block.hitsLeft = this.blockTypes.getHitPoints(blockType);
-                veilColor = this.blockTypes.getColor(blockType); // Should be distinct from BlockTypes.js
-                veilAlpha = this.blockTypes.getAlpha(blockType); // Should be high from BlockTypes.js
-                // Add a unique visual: e.g., a constant bright border
-                // The blueVeil itself will be created later, we will modify it after creation.
+                veilColor = this.blockTypes.getColor(blockType); 
+                veilAlpha = this.blockTypes.getAlpha(blockType); 
                 break;
             case this.blockTypes.TYPES.STRONG:
                 block.hitsLeft = this.blockTypes.getHitPoints(blockType);
-                veilColor = this.blockTypes.getColor(blockType); // Should be more intense from BlockTypes.js
-                veilAlpha = this.blockTypes.getAlpha(blockType); // Should be higher from BlockTypes.js
-                // Veil will be created later, potentially modify its stroke or add effect.
+                // Custom visual for STRONG blocks - Aqua theme
+                veilColor = 0x40E0D0; // Turquoise / Aqua
+                veilAlpha = 0.85;    // More opaque
+                block.setAlpha(0.65); // Physical block itself slightly more opaque
                 break;
             case this.blockTypes.TYPES.DYNAMITE:
                 block.hitsLeft = this.blockTypes.getHitPoints(blockType);
@@ -678,7 +687,8 @@
                 ease: 'Sine.easeInOut'
             });
         } else if (blockType === this.blockTypes.TYPES.STRONG) {
-            blueVeil.setStrokeStyle(3, 0x808080, 0.7); // Thicker, gray, more opaque border
+            // blueVeil.setStrokeStyle(3, 0xA9A9A9, 0.85); // Old: DarkGray border
+            blueVeil.setStrokeStyle(3, 0x008080, 0.9); // New: Teal border, slightly more opaque
         } else if (blockType === this.blockTypes.TYPES.DYNAMITE) {
             blueVeil.setStrokeStyle(3, 0xFF0000, 0.8); // Fiery red border for dynamite veil
         }
@@ -971,9 +981,22 @@
     checkLevelCompletion() {
         if (this.isLevelComplete || this.isGameOver || this.victoryDelayTimer) return; // Prevent multiple completions or if already delaying
 
-        if (this.revealPercentage >= this.targetPercentage) {
-            // If the target percentage is met, start the 5-second victory delay.
-            console.log(`Level ${this.currentLevel} meets completion criteria (Target: ${this.targetPercentage}%, Revealed: ${this.revealPercentage}%). Starting 5s victory delay.`);
+        const allBombsUsed = !this.isAnyBombAvailable();
+        const targetPercentageReached = this.revealPercentage >= this.targetPercentage;
+        const fullClearReached = this.revealPercentage >= 100;
+
+        const condition1Met = allBombsUsed && targetPercentageReached;
+        const condition2Met = fullClearReached;
+
+        if (condition1Met || condition2Met) {
+            let victoryReason = "";
+            if (condition2Met) {
+                victoryReason = "100% clear!";
+            } else if (condition1Met) {
+                victoryReason = `Target ${this.targetPercentage}% reached with all bombs used.`;
+            }
+
+            console.log(`Level ${this.currentLevel} meets completion criteria (${victoryReason}). Starting 5s victory delay.`);
             this.victoryDelayTimer = this.time.delayedCall(5000, () => {
                 this.victoryDelayTimer = null; // Clear the timer reference
                 if (this.isGameOver) {
@@ -982,19 +1005,25 @@
                 }
                 
                 this.isLevelComplete = true; // Set isLevelComplete HERE
-                this.score += (this.shotsRemaining * 100); // Add bonus for remaining shots
+                // Bonus score for remaining shots only makes sense if condition2Met (100% clear) happened with shots left.
+                // If condition1Met, allBombsUsed is true, so shotsRemaining should effectively be 0 for bonus calc purposes for *that* condition.
+                if (condition2Met && this.shotsRemaining > 0) { // shotsRemaining might be > 0 if 100% clear achieved early
+                    this.score += (this.shotsRemaining * 100);
+                }
                 this.events.emit('updateScore', this.score); // Emit final score update
                 if (this.audioManager) this.audioManager.playVictoryMusic();
-                console.log(`Level ${this.currentLevel} Complete! Final Score: ${this.score}. Victory UI displayed after delay.`);
+                console.log(`Level ${this.currentLevel} Complete! Reason: ${victoryReason}. Final Score: ${this.score}. Victory UI displayed after delay.`);
                 this.events.emit('levelComplete', { 
                     result: 'win', 
                     percentage: this.revealPercentage, 
-                    shotsRemaining: this.shotsRemaining, 
-                    score: this.score 
+                    shotsRemaining: this.shotsRemaining, // This will reflect actual shots left, if any
+                    score: this.score,
+                    reason: victoryReason,
+                    victoryBackgroundKey: this.levelManager.getVictoryBackgroundKey() // ADD THIS LINE
                 });
             });
-        } else if (this.shotsRemaining <= 0 && !this.isAnyBombAvailable()) {
-            // If not complete and no shots/bombs left, check for game over.
+        } else if (allBombsUsed && this.revealPercentage < this.targetPercentage) {
+            // If not complete and all bombs used and target not met, check for game over.
             this.checkGameOver();
         }
     }
@@ -1009,7 +1038,7 @@
             this.victoryDelayTimer = null;
         }
 
-        if (this.shotsRemaining <= 0 && !this.isAnyBombAvailable() && this.revealPercentage < this.targetPercentage) {
+        if (!this.isAnyBombAvailable() && this.revealPercentage < this.targetPercentage) { // Check if all bombs are used and target not met
             this.isGameOver = true;
             if (this.audioManager) this.audioManager.playGameOverSound();
             console.log(`Game Over! Revealed: ${this.revealPercentage}%, Target: ${this.targetPercentage}%`);
@@ -1513,21 +1542,14 @@
         
         // Reset other game state variables
         this.gameOver = false;
-        this.shotsRemaining = this.MAX_SHOTS;
         this.revealPercentage = 0;
         
         // Reset the ice block counters
         this.clearedIceBlocks = 0;
         
         // Reset bomb counts
-        this.bombsRemaining = {
-            [this.BOMB_TYPES.BLAST]: 10,
-            [this.BOMB_TYPES.PIERCER]: 7,
-            [this.BOMB_TYPES.CLUSTER]: 5,
-            [this.BOMB_TYPES.STICKY]: 3,
-            [this.BOMB_TYPES.SHATTERER]: 2,
-            [this.BOMB_TYPES.DRILLER]: 3  // Add initial count for Driller Girl bombs
-        };
+        this.resetBombCounts(); // Ensures all bomb counts are zeroed out
+        this.setupBombs(); // ADD THIS LINE - Repopulate bombsRemaining from LevelManager
         
         // Update bomb counter displays via event for UIScene
         this.events.emit('initialUIDataReady'); // UIScene will fetch all counts
@@ -1699,8 +1721,8 @@
             // this.updateUI(); 
             
             // Check win/lose conditions if needed
-            if (this.checkGameState) {
-                this.checkGameState();
+            if (this.gameStateManager && typeof this.gameStateManager.checkGameState === 'function') {
+                this.gameStateManager.checkGameState();
             }
         } catch (error) {
             console.error("Critical error in update loop:", error);
@@ -1885,11 +1907,15 @@
         // GameScene.setupGame() ensures UIScene is running. UIScene.setupEventListeners() then gets this.gameScene.
         // This seems like a safe place if init() always runs before UIScene might try to emit.
         if (this.events) {
-             console.log("[GameScene.init] Setting up listener for 'selectBombTypeRequest'"); // ADD THIS LOG
+             console.log(`[GameScene.init for Level ${this.currentLevel}] Setting up listeners. Using .once for 'goToNextLevel'.`);
+            // Defensively remove any potential old listener for this specific context before adding a new one.
+            this.events.off('goToNextLevel', this.handleGoToNextLevel, this);
+            
             this.events.on('selectBombTypeRequest', this.handleBombTypeSelectionRequest, this);
-            this.events.on('goToNextLevel', this.handleGoToNextLevel, this); // ADD THIS LINE
+            // Use .once for goToNextLevel to ensure it only fires once per scene instance
+            this.events.once('goToNextLevel', this.handleGoToNextLevel, this);
         } else {
-            console.error("[GameScene.init] this.events not available to set up 'selectBombTypeRequest' listener!");
+            console.error(`[GameScene.init for Level ${this.currentLevel}] this.events not available to set up listeners!`);
         }
             
             console.log("Initialization complete for level", this.currentLevel);
@@ -2528,7 +2554,12 @@
         // Create a periodic check that runs every 5 seconds
         this.globalFailsafeTimer = setInterval(() => {
             try {
-                this.checkGameState();
+                if (this.gameStateManager && typeof this.gameStateManager.checkGameState === 'function') {
+                    this.gameStateManager.checkGameState();
+                } else {
+                    // This else block might indicate an issue if gameStateManager is expected but missing
+                    console.warn("GlobalFailsafe: gameStateManager or checkGameState not available.");
+                }
             } catch (e) {
                 console.error("Error in global failsafe:", e);
             }
@@ -3166,30 +3197,30 @@
     }
     
     // Initialize the level manager and return a promise
-    async initializeLevelManager() {
-        try {
-            console.log("Initializing level manager...");
-            
-            // Initialize level manager
-            this.levelManager = new LevelManager(this);
-            
-            // Set the current level in the manager
-            this.levelManager.setLevel(this.currentLevel);
-            
-            // Initialize and wait for it to complete
-            await this.levelManager.initialize();
-            
-            console.log("Level manager initialized successfully");
-            
-            // Update target percentage based on level config
-            this.targetPercentage = this.levelManager.getTargetPercentage();
-            
-            return true;
-        } catch (error) {
-            console.error("Error initializing level manager:", error);
-            return false;
-        }
-    }
+    // async initializeLevelManager() { 
+    //     try {
+    //         console.log("Initializing level manager...");
+    //         
+    //         // Initialize level manager
+    //         this.levelManager = new LevelManager(this);
+    //         
+    //         // Set the current level in the manager
+    //         this.levelManager.setLevel(this.currentLevel);
+    //         
+    //         // Initialize and wait for it to complete
+    //         await this.levelManager.initialize();
+    //         
+    //         console.log("Level manager initialized successfully");
+    //         
+    //         // Update target percentage based on level config
+    //         this.targetPercentage = this.levelManager.getTargetPercentage();
+    //         
+    //         return true;
+    //     } catch (error) {
+    //         console.error("Error initializing level manager:", error);
+    //         return false;
+    //     }
+    // }
 
     
     
@@ -3699,22 +3730,158 @@
     }
 
     handleGoToNextLevel() {
-        console.log(`[GameScene.handleGoToNextLevel] Current level: ${this.currentLevel}`);
-        this.currentLevel++;
-        console.log(`[GameScene.handleGoToNextLevel] Incrementing to level: ${this.currentLevel}`);
-        
+        console.log(`[GameScene.handleGoToNextLevel ENTERED] Current isTransitioningLevel: ${this.isTransitioningLevel}, For Level: ${this.currentLevel}, Instance ID: ${this.scene.key}_${this._id || (this._id = Phaser.Utils.String.UUID())}`);
+
+        if (this.isTransitioningLevel) {
+            console.warn(`[GameScene.handleGoToNextLevel WARN] Instance ${this.scene.key}_${this._id} for level ${this.currentLevel} is ALREADY transitioning. Aborting duplicate call.`);
+            return;
+        }
+        this.isTransitioningLevel = true; // Set it and never unset for this instance
+        console.log(`[GameScene.handleGoToNextLevel INFO] Instance ${this.scene.key}_${this._id} for level ${this.currentLevel} is NOW transitioning.`);
+
+        // Aggressively disable further event processing for this instance
+        // if (this.events) {  // REMOVE BLOCK START
+        //     console.log(`[GameScene.handleGoToNextLevel INFO] Instance ${this.scene.key}_${this._id} for level ${this.currentLevel} - Nullifying this.events.`);
+        //     this.events.destroy(); // Destroy the event emitter
+        //     this.events = null;    // Nullify the reference
+        // } // REMOVE BLOCK END
+
+        const previousLevel = this.currentLevel;
+        this.currentLevel++; // currentLevel is now target level
+        console.log(`[GameScene.handleGoToNextLevel] Level incremented. Old: ${previousLevel}, New Target: ${this.currentLevel}`);
+
         // Stop UIScene if it's active
         if (this.scene.isActive('UIScene')) {
-            console.log('[GameScene.handleGoToNextLevel] Stopping UIScene.');
-            this.scene.stop('UIScene');
+            console.log(`[GameScene.handleGoToNextLevel] Attempting to stop UIScene. Target Level: ${this.currentLevel}`);
+            try {
+                this.scene.stop('UIScene');
+                console.log(`[GameScene.handleGoToNextLevel] UIScene stop command issued. Is UIScene active now? ${this.scene.isActive('UIScene')}`);
+            } catch (e) {
+                console.error(`[GameScene.handleGoToNextLevel] ERROR stopping UIScene:`, e);
+            }
         }
 
         // Stop GameScene itself
-        console.log('[GameScene.handleGoToNextLevel] Stopping GameScene.');
-        this.scene.stop('GameScene'); 
+        console.log(`[GameScene.handleGoToNextLevel] Attempting to stop GameScene (Instance for level ${previousLevel}). Target Level: ${this.currentLevel}`);
+        try {
+            this.scene.stop('GameScene'); // This stops the current scene instance
+            console.log(`[GameScene.handleGoToNextLevel] GameScene stop command issued for self (level ${previousLevel}).`);
+        } catch (e) {
+            console.error(`[GameScene.handleGoToNextLevel] ERROR stopping self (GameScene for level ${previousLevel}):`, e);
+        }
 
         // Start LoadingScene for the new level
-        console.log(`[GameScene.handleGoToNextLevel] Starting LoadingScene for level: ${this.currentLevel}`);
-        this.scene.start('LoadingScene', { levelNumber: this.currentLevel });
+        console.log(`[GameScene.handleGoToNextLevel] Attempting to start LoadingScene with levelNumber: ${this.currentLevel}.`);
+        try {
+            this.scene.start('LoadingScene', { levelNumber: this.currentLevel });
+            console.log(`[GameScene.handleGoToNextLevel] LoadingScene start command issued successfully for level ${this.currentLevel}.`);
+        } catch (e) {
+            console.error(`[GameScene.handleGoToNextLevel] ERROR starting LoadingScene for level ${this.currentLevel}:`, e);
+        }
+        console.log(`[GameScene.handleGoToNextLevel EXITED] Target Level: ${this.currentLevel}, From Level: ${previousLevel}`);
+    }
+
+    shutdown() {
+        console.log(`[GameScene.shutdown CALLED] For scene related to level: ${this.currentLevel}. Current isTransitioningLevel state: ${this.isTransitioningLevel}`);
+        
+        // Clean up the gameStateManager
+        if (this.gameStateManager) {
+            this.gameStateManager.shutdown();
+        }
+        
+        // Clean up the collisionManager
+        if (this.collisionManager) {
+            this.collisionManager.shutdown();
+            this.collisionManager = null;
+        }
+        
+        // Clear the failsafe timer to prevent memory leaks
+        if (this.globalFailsafeTimer) {
+            clearInterval(this.globalFailsafeTimer);
+            this.globalFailsafeTimer = null;
+        }
+        
+        // Clean up any pending timeouts
+        if (this.pendingReset) {
+            clearTimeout(this.pendingReset);
+            this.pendingReset = null;
+        }
+        
+        if (this.bombState.autoResetTimer) {
+            clearTimeout(this.bombState.autoResetTimer);
+            this.bombState.autoResetTimer = null;
+        }
+
+        // Explicitly remove event listeners for this scene instance
+        if (this.events) {
+            console.log(`[GameScene.shutdown] Removing known event listeners for level ${this.currentLevel}.`);
+            this.events.off('goToNextLevel', this.handleGoToNextLevel, this);
+            this.events.off('selectBombTypeRequest', this.handleBombTypeSelectionRequest, this);
+            this.events.off('initialUIDataReady'); // Remove all listeners for this event if any were added by UIScene to this
+            // Add any other listeners that GameScene.init or GameScene.create might have set on this.events
+        }
+        
+        // Clean up audio resources via AudioManager
+        if (this.audioManager) {
+            try {
+                console.log("Shutdown: Cleaning up audio resources via AudioManager");
+                this.audioManager.cleanup();
+            } catch(error) {
+                console.error("Error cleaning up audio in shutdown:", error);
+            }
+            // Null out reference after cleanup
+            this.audioManager = null;
+        }
+        
+        // Clean up any remaining bomb or resources
+        if (this.bomb && this.bomb.scene) {
+            this.bomb.destroy();
+            this.bomb = null;
+        }
+        
+        // Clean up BombInputHandler
+        if (this.bombInputHandler) {
+            this.bombInputHandler.cleanup();
+            this.bombInputHandler = null;
+        }
+        
+        // Call original shutdown method
+        super.shutdown();
+        
+        // Remove all input handlers
+        this.input.off('pointerdown');
+        this.input.off('pointermove');
+        this.input.off('pointerup');
+        
+        // Clear all timers
+        if (this.timers) {
+            this.timers.forEach(timer => {
+                if (timer) timer.remove();
+            });
+            this.timers = [];
+        }
+        
+        // Remove all tweens
+        this.tweens.killAll();
+        
+        // Clear any bomb-specific resources for a launched bomb
+        const activeLaunchedBomb = this.bombLauncher ? this.bombLauncher.getActiveLaunchedBomb() : null;
+        if (activeLaunchedBomb) {
+            if (this.bombUtils && typeof this.bombUtils.cleanupBombResources === 'function') {
+                this.bombUtils.cleanupBombResources(activeLaunchedBomb);
+            } else {
+                console.warn("GameScene.shutdown: bombUtils or cleanupBombResources not available to clean active bomb.");
+                // Fallback: try to destroy directly if bombUtils is missing
+                if (activeLaunchedBomb.scene) {
+                    activeLaunchedBomb.destroy();
+                }
+            }
+            if (this.bombLauncher && typeof this.bombLauncher.clearActiveBomb === 'function') { 
+                 this.bombLauncher.clearActiveBomb(); // Also clear it from launcher state
+            } else {
+                 console.warn("GameScene.shutdown: bombLauncher.clearActiveBomb not available.");
+            }
+        }
+        console.log(`[GameScene.shutdown COMPLETED] For scene related to level: ${this.currentLevel}.`);
     }
 }

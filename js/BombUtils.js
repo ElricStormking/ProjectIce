@@ -107,7 +107,7 @@ class BombUtils {
         const dirY = magnitude > 0 ? velocity.y / magnitude : 1;
         
         // Create a narrower but longer explosion effect
-        const lineLength = 300;
+        const lineLength = 750; // MODIFIED FROM 300 (300 * 2.5)
         
         // Create visual effect - smaller explosion
         this.createExplosion(x, y);
@@ -414,8 +414,8 @@ class BombUtils {
         }
         normalizedPower = Math.max(0, Math.min(normalizedPower, 1)); // Clamp to 0-1
 
-        const MIN_DRILL_DURATION = 1000; // ms
-        const MAX_DRILL_DURATION = 4000; // ms
+        const MIN_DRILL_DURATION = 500; // ms
+        const MAX_DRILL_DURATION = 3000; // ms  MODIFIED FROM 4000
         const dynamicDuration = MIN_DRILL_DURATION + normalizedPower * (MAX_DRILL_DURATION - MIN_DRILL_DURATION);
 
         if (this.scene.debugMode) {
@@ -714,7 +714,7 @@ class BombUtils {
         });
         
         // Destroy blocks in a wider radius
-        this.destroyBlocksInRadius(x, y, 180);
+        this.destroyBlocksInRadius(x, y, 360);
         
         // Play an explosion sound if available
         if (this.scene.sound && this.scene.sound.add) {

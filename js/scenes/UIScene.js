@@ -447,8 +447,40 @@ class UIScene extends Phaser.Scene {
         });
 
         if (data.result === 'win' && hasNextLevel) {
-             this._createButton(this.containers.victory, 960 + 200, victoryButtonY, 'Next Level', '#22aa22', () => {
-                if (this.gameScene) this.gameScene.events.emit('goToNextLevel');
+            const nextLevelButton = this._createButton(this.containers.victory, 960 + 200, victoryButtonY, 'Next Level', '#22aa22', () => {
+                const button = nextLevelButton; // Use a shorter name for clarity
+                console.log(`[UIScene.NextLevelClick] Entered. Button isClicked: ${button.isClicked}, input.enabled: ${button.input ? button.input.enabled : 'N/A'}, active: ${button.active}`);
+
+                if (button.isClicked) { // Primary check
+                    console.log("[UIScene.NextLevelClick] Already clicked (isClicked flag is true). Aborting.");
+                    return;
+                }
+                // Secondary check, if input is somehow disabled already
+                if (button.input && !button.input.enabled) {
+                    console.log("[UIScene.NextLevelClick] Input is already disabled (before explicit disable). Aborting.");
+                    button.isClicked = true; // Ensure flag is set
+                    return;
+                }
+
+                button.isClicked = true;
+                console.log("[UIScene.NextLevelClick] Set isClicked = true.");
+
+                if (button.input) { // Check if input component exists
+                    button.disableInteractive();
+                    console.log(`[UIScene.NextLevelClick] Called disableInteractive(). Input enabled now: ${button.input.enabled}`);
+                } else {
+                    console.warn("[UIScene.NextLevelClick] Button has no input component to disable.");
+                }
+                button.setAlpha(0.5);
+                console.log("[UIScene.NextLevelClick] Set Alpha to 0.5.");
+
+                if (this.gameScene && this.gameScene.events && this.gameScene.levelManager && this.gameScene.levelManager.hasNextLevel()) {
+                    console.log("[UIScene.NextLevelClick] Emitting 'goToNextLevel' event.");
+                    this.gameScene.events.emit('goToNextLevel');
+                } else {
+                    this.showMessage({ message: 'No more levels!', duration: 2000 });
+                    console.log("[UIScene.NextLevelClick] No next level or GameScene not ready for event.");
+                }
             });
         }
     }
@@ -513,7 +545,7 @@ class UIScene extends Phaser.Scene {
     }
     
     shutdown() {
-        console.log("UIScene: Shutting down. [UIScene.shutdown] STARTING");
+        console.log("[UIScene.shutdown] UIScene shutdown method CALLED.");
         for (const key in this.containers) {
             console.log(`[UIScene.shutdown] Clearing container: ${key}`);
             if (key === 'victory' && this.containers[key]) {
@@ -524,20 +556,22 @@ class UIScene extends Phaser.Scene {
         if (this.bombSelectorContainer && this.bombSelectorContainer.scene) {
             console.log("[UIScene.shutdown] Destroying bombSelectorContainer.");
             this.bombSelectorContainer.destroy(true);
+            this.bombSelectorContainer = null; // Explicitly nullify
         }
 
-        if (this.shotsText && this.shotsText.scene) this.shotsText.destroy();
-        if (this.percentageText && this.percentageText.scene) this.percentageText.destroy();
-        if (this.targetText && this.targetText.scene) this.targetText.destroy();
-        if (this.scoreText && this.scoreText.scene) this.scoreText.destroy();
-        if (this.progressBarBg && this.progressBarBg.scene) this.progressBarBg.destroy();
-        if (this.progressBar && this.progressBar.scene) this.progressBar.destroy();
-        if (this.progressText && this.progressText.scene) this.progressText.destroy();
-        if (this.selectionIndicator && this.selectionIndicator.scene) this.selectionIndicator.destroy();
+        if (this.shotsText && this.shotsText.scene) { this.shotsText.destroy(); this.shotsText = null; }
+        if (this.percentageText && this.percentageText.scene) { this.percentageText.destroy(); this.percentageText = null; }
+        if (this.targetText && this.targetText.scene) { this.targetText.destroy(); this.targetText = null; }
+        if (this.scoreText && this.scoreText.scene) { this.scoreText.destroy(); this.scoreText = null; }
+        if (this.progressBarBg && this.progressBarBg.scene) { this.progressBarBg.destroy(); this.progressBarBg = null; }
+        if (this.progressBar && this.progressBar.scene) { this.progressBar.destroy(); this.progressBar = null; }
+        if (this.progressText && this.progressText.scene) { this.progressText.destroy(); this.progressText = null; }
+        if (this.selectionIndicator && this.selectionIndicator.scene) { this.selectionIndicator.destroy(); this.selectionIndicator = null; }
         
         this.bombButtons = {}; this.bombLabels = {}; this.bombCounters = {};
 
         if (this.gameScene && this.gameScene.events) {
+            console.log("[UIScene.shutdown] Removing event listeners from GameScene.");
             this.gameScene.events.off('updateShots', this.updateShots, this);
             this.gameScene.events.off('updatePercentage', this.updatePercentage, this);
             this.gameScene.events.off('updateScore', this.updateScore, this);
@@ -547,8 +581,11 @@ class UIScene extends Phaser.Scene {
             this.gameScene.events.off('gameOver', this.showGameOverScreen, this);
             this.gameScene.events.off('refreshUI', this.refreshUIElements, this);
             this.gameScene.events.off('displayMessage', this.showMessage, this);
+            this.gameScene.events.off('initialUIDataReady', this.requestInitialUIData, this); // Make sure this is also removed
+        } else {
+            console.log("[UIScene.shutdown] GameScene or GameScene.events not available for listener removal.");
         }
         this.gameScene = null;
-        console.log("[UIScene.shutdown] FINISHED");
+        console.log("[UIScene.shutdown] UIScene shutdown method COMPLETED.");
     }
 } 

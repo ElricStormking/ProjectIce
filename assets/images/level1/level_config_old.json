@@ -4,9 +4,8 @@
   "victoryBackgroundKey": "victoryBackground1",
   "backgroundImageKey": "background1",
   "targetPercentage": 85,
-  "blockSize": 20,
-  "maxShots": 20,
+  "blockSize": 40,
   "unlockedBomb": "blast_bomb",
   "blockLayoutPath": "block_layout.json",
   "availableBombsPath": "available_bombs.json"
-}
+} 

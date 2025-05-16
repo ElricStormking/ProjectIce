@@ -1,0 +1,16 @@
+{
+  "levelNumber": 2,
+  "chibiGirl": "Knight",
+  "bombType": "piercer_bomb",
+  "totalBlocks": 60,
+  "blockConfiguration": {
+    "standard": 45,
+    "strong": 10,
+    "dynamite": 5,
+    "eternal": 0,
+    "bouncy": 0
+  },
+ 
+  "layout": "6x10 grid; Dynamite at corners (x: 200, 600; y: 100, 500), Strong in center",
+  "strategy": "Blast near Dynamite for explosions. Ricochet for corners. Trigger voice messages with Dynamite chains."
+}

@@ -438,94 +438,38 @@ class BombLauncher {
     }
     
     /**
-     * Calculate trajectory points without drawing
+     * Calculate points for trajectory prediction using a simplified straight line.
+     * @param {number} startX - The starting X position of the bomb.
+     * @param {number} startY - The starting Y position of the bomb.
+     * @param {number} velocityX - The initial X velocity component.
+     * @param {number} velocityY - The initial Y velocity component.
+     * @return {Array<object>} An array of {x, y} points for the trajectory.
      */
     calculateTrajectoryPoints(startX, startY, velocityX, velocityY) {
-        // Number of points to calculate
-        const numPoints = 200;
-        const timeStep = 0.1;
-        
-        // Physics properties (from GameScene.drawTrajectory)
-        let density = 0.0003;
-        let frictionAir = 0.008;
-        
-        // Get the current bomb type from the scene
-        const currentBombType = this.scene.currentBombType || 'bomb';
-        const BOMB_TYPES = this.scene.BOMB_TYPES || {}; // Get BOMB_TYPES from scene
-        
-        // Adjust properties for special bomb types (from GameScene.drawTrajectory)
-        switch(currentBombType) {
-            case BOMB_TYPES.PIERCER:
-                density = 0.0005;
-                frictionAir = 0.006; 
-                break;
-            case BOMB_TYPES.CLUSTER:
-                density = 0.0002;
-                frictionAir = 0.01; 
-                break;
-            case BOMB_TYPES.STICKY: // Assuming sticky has same trajectory as default
-                density = 0.0003;
-                frictionAir = 0.008; 
-                break;
-            case BOMB_TYPES.SHATTERER:
-                density = 0.0004;
-                frictionAir = 0.0072; 
-                break;
-            case BOMB_TYPES.DRILLER: // Assuming driller has same trajectory as shatterer
-                density = 0.0004;
-                frictionAir = 0.006; 
-                break;
-            // Ricochet bomb might have unique trajectory needs, but not specified in GameScene.drawTrajectory
-        }
-        
-        // Gravity and scaling (from GameScene.drawTrajectory)
-        let gravityY = 0.008;
-        try {
-            gravityY = this.scene.matter.world.localWorld.gravity.y || 0.008;
-        } catch (error) {
-            // console.warn("Could not access physics world gravity, using default:", error);
-        }
-        
-        let forceScale = 40;
-        try {
-            forceScale = (this.scene.matter.world.localWorld.body?.global?.translateForceToPts || 1) * 40;
-        } catch (error) {
-            // console.warn("Could not access physics force scale, using default:", error);
-        }
-        
-        // Initial position and velocity
-        let x = startX;
-        let y = startY;
-        let vx = velocityX * forceScale;
-        let vy = velocityY * forceScale;
-        
-        // Reset trajectory points
         this.trajectoryPoints = [];
-        
-        // Calculate trajectory points
-        for (let i = 0; i < numPoints; i++) {
-            // Save current point
-            this.trajectoryPoints.push({ x, y });
-            
-            // Calculate next position
-            x += vx * timeStep;
-            y += vy * timeStep;
-            
-            // Update velocity with physics
-            vx *= (1 - frictionAir * timeStep);
-            vy *= (1 - frictionAir * timeStep);
-            vy += gravityY * timeStep * 150 * density;
-            
-            // Stop if out of bounds
-            if (x < -500 || x > this.scene.cameras.main.width + 500 || 
-                y < -500 || y > this.scene.cameras.main.height + 1000) {
-                break;
-            }
-        }
-        
+        const numPoints = 30; // Number of dots for the line
+        const lineLength = 800; // Fixed length for the trajectory line
+        const timeStep = 1; // Arbitrary step, used for segmenting the line
+
         if (this.debugMode) {
-            console.log(`Calculated ${this.trajectoryPoints.length} trajectory points`);
+            // console.log(`[BombLauncher.calculateTrajectoryPoints] Straight Line Mode. Start: (${startX.toFixed(2)}, ${startY.toFixed(2)}), Vel: (${velocityX.toFixed(2)}, ${velocityY.toFixed(2)})`);
         }
+
+        const angle = Math.atan2(velocityY, velocityX);
+
+        for (let i = 0; i < numPoints; i++) {
+            const distance = (i / numPoints) * lineLength;
+            const x = startX + distance * Math.cos(angle);
+            const y = startY + distance * Math.sin(angle);
+            this.trajectoryPoints.push({ x: x, y: y });
+
+            // Optional: Stop if out of bounds, though less critical for a straight line visual
+            // if (x < 0 || x > this.scene.cameras.main.width || y < 0 || y > this.scene.cameras.main.height) {
+            //     if (this.debugMode) console.log("[BombLauncher.calculateTrajectoryPoints] Straight line point out of bounds, stopping.");
+            //     break;
+            // }
+        }
+        return this.trajectoryPoints;
     }
     
     /**

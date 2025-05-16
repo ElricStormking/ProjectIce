@@ -135,15 +135,31 @@ class CollisionManager {
                         
                         // Collision with a GameObject (e.g., an ice block)
                         if (otherBody.gameObject) {
-                            const block = otherBody.gameObject;
-                            if (!block.scene) { // Check if block is still valid
-                                if (this.debugMode) console.log("[CollisionManager] Collided block no longer exists in scene.");
+                            const collidedObject = otherBody.gameObject;
+                            if (!collidedObject.scene) { // Check if block is still valid
+                                if (this.debugMode) console.log("[CollisionManager] Collided object no longer exists in scene.");
                                 continue;
                             }
 
-                            if (block.isActive && this.scene.iceBlocks && this.scene.iceBlocks.includes(block)) {
-                                // Call the specific handler for bomb-to-block collisions
-                                const collisionResult = this._handleBombToBlockCollision(activeBomb, block, bombTypeCurrentPair, bombX, bombY);
+                            // Check if collidedObject is another bomb
+                            const isOtherObjectABomb = collidedObject.bombType && 
+                                                       (collidedObject.isLaunched || collidedObject.isSticky || collidedObject.isDriller || collidedObject.isRicochet) &&
+                                                       collidedObject !== activeBomb;
+
+                            if (isOtherObjectABomb) {
+                                if (this.debugMode) console.log(`[CollisionManager] Active bomb (${activeBomb.bombType}) collided with another bomb (${collidedObject.bombType}).`);
+                                const bombToBombResult = this._handleBombToBombCollision(activeBomb, collidedObject);
+                                if (bombToBombResult.processed) {
+                                    if (bombToBombResult.exploded) overallBombExploded = true;
+                                    // If activeBomb exploded, break from pair loop
+                                    if (overallBombExploded) {
+                                         if (this.debugMode) console.log("[CollisionManager] Active bomb exploded after bomb-to-bomb collision. Breaking pair loop.");
+                                        break; 
+                                    }
+                                }
+                            } else if (collidedObject.isActive && this.scene.iceBlocks && this.scene.iceBlocks.includes(collidedObject)) {
+                                // It's an ice block, call the specific handler for bomb-to-block collisions
+                                const collisionResult = this._handleBombToBlockCollision(activeBomb, collidedObject, bombTypeCurrentPair, bombX, bombY);
                                 if (collisionResult.processed) {
                                     if (collisionResult.hasExploded) overallBombExploded = true;
                                     if (collisionResult.bombStuck) overallBombStuck = true;
@@ -323,6 +339,99 @@ class CollisionManager {
         }
         
         return { processed: effectProcessedThisCall, hasExploded: overallHasExploded, bombStuck: overallBombStuck };
+    }
+
+    /**
+     * Handles collision between two bombs.
+     * @private
+     * @param {Phaser.Physics.Matter.Image} bombA - The bomb initiating the collision (usually the active launched bomb).
+     * @param {Phaser.Physics.Matter.Image} bombB - The other bomb involved in the collision.
+     * @returns {{processed: boolean, exploded: boolean}} Result of the collision.
+     */
+    _handleBombToBombCollision(bombA, bombB) {
+        if (!bombA || !bombA.scene || !bombB || !bombB.scene) {
+            if (this.debugMode) console.log("[CollisionManager._handleBombToBombCollision] Invalid bomb instances.");
+            return { processed: false, exploded: false };
+        }
+
+        if (bombA.hasExploded) { // Don't re-explode bombA if it's already exploded
+            if (this.debugMode) console.log(`[CollisionManager._handleBombToBombCollision] BombA (${bombA.bombType}) already exploded. Skipping.`);
+            return { processed: false, exploded: false };
+        }
+
+        const explodingTypes = [
+            this.scene.BOMB_TYPES.BLAST,
+            this.scene.BOMB_TYPES.PIERCER,
+            this.scene.BOMB_TYPES.CLUSTER,
+            this.scene.BOMB_TYPES.SHATTERER
+        ];
+
+        let hasExploded = false;
+        let processed = false;
+
+        // Check if bombA is one of the types that should explode on contact with another bomb
+        if (explodingTypes.includes(bombA.bombType)) {
+            // Ensure bombB is an actual bomb (e.g., a launched, sticky, or driller bomb)
+            // and not some other miscellaneous game object that might have similar properties.
+            // A simple check for bombType on bombB is a good indicator.
+            if (bombB.bombType && (bombB.isLaunched || bombB.isSticky || bombB.isDriller || bombB.isRicochet)) {
+                if (this.debugMode) {
+                    console.log(`[CollisionManager._handleBombToBombCollision] ${bombA.bombType} (ID: ${bombA.id || 'N/A'}) hit ${bombB.bombType} (ID: ${bombB.id || 'N/A'}). Exploding ${bombA.bombType}.`);
+                }
+
+                const bombAX = bombA.x;
+                const bombAY = bombA.y;
+
+                // Call the appropriate handler for bombA
+                switch (bombA.bombType) {
+                    case this.scene.BOMB_TYPES.BLAST:
+                        this.scene.bombUtils.handleBlastBomb(bombAX, bombAY);
+                        break;
+                    case this.scene.BOMB_TYPES.PIERCER:
+                        // Piercer needs velocity. If bombA's body is gone, this might be tricky.
+                        // Assume velocity is still relevant from the impact.
+                        const velocityA = bombA.body ? { x: bombA.body.velocity.x, y: bombA.body.velocity.y } : undefined;
+                        this.scene.bombUtils.handlePiercerBomb(bombAX, bombAY, velocityA);
+                        break;
+                    case this.scene.BOMB_TYPES.CLUSTER:
+                        this.scene.bombUtils.handleClusterBomb(bombAX, bombAY);
+                        break;
+                    case this.scene.BOMB_TYPES.SHATTERER:
+                        this.scene.bombUtils.handleShattererBomb(bombAX, bombAY);
+                        break;
+                }
+
+                bombA.hasExploded = true;
+                hasExploded = true;
+                processed = true;
+
+                // Cleanup bombA. Some handlers might do partial cleanup.
+                // This ensures comprehensive cleanup.
+                // Check if bombA still exists and is in the scene before cleaning.
+                if (bombA.scene) {
+                     // If bombA is the current active bomb in the launcher, clear it.
+                    if (this.scene.bombLauncher && this.scene.bombLauncher.bomb === bombA) {
+                        this.scene.bombLauncher.bomb = null;
+                        if(this.scene.bombLauncher.bombState) this.scene.bombLauncher.bombState.active = false;
+                    }
+                    if (this.scene.bomb === bombA) { // Also clear direct scene reference if it matches
+                        this.scene.bomb = null;
+                    }
+                    this.scene.bombUtils.cleanupBombResources(bombA); // This should destroy the GameObject
+                }
+
+
+                // The explosion from bombA (e.g., handleBlastBomb) should trigger bombB
+                // if bombB is a type that can be chain-reacted (like Sticky via triggerStickyBomb).
+                // No direct action on bombB is needed here for its explosion, that's part of the bombA's effect.
+            } else {
+                 if (this.debugMode) console.log(`[CollisionManager._handleBombToBombCollision] BombA (${bombA.bombType}) hit an object (${bombB.texture ? bombB.texture.key : 'unknown'}) that is not a recognized active bomb type. No direct bomb-to-bomb explosion.`);
+            }
+        } else {
+            if (this.debugMode) console.log(`[CollisionManager._handleBombToBombCollision] BombA (${bombA.bombType}) is not a type that explodes on bomb-to-bomb contact. Type: ${bombA.bombType}`);
+        }
+
+        return { processed, exploded: hasExploded };
     }
 
     // New method to handle bouncy block reflections

@@ -1,0 +1,189 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-TF-8">
+    <title>Phaser Qix Level Editor</title>
+    <script src="js/lib/phaser.min.js"></script>
+    <script src="js/BlockTypes.js"></script>
+    <script src="js/LevelManager.js"></script>
+    <!-- Note: GameScene and other game-specific logic might not be needed directly for the editor scene itself -->
+    <!-- We will create EditorScene.js next -->
+    <script src="js/scenes/EditorScene.js"></script>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 0; padding: 20px; background-color: #f0f0f0; }
+        #editor-container { display: flex; gap: 20px; }
+        #phaser-canvas-container { border: 1px solid #ccc; }
+        #controls-panel { padding: 15px; background-color: #fff; border: 1px solid #ccc; border-radius: 5px; width: 350px; }
+        .control-group { margin-bottom: 15px; }
+        .control-group label { display: block; margin-bottom: 5px; font-weight: bold; }
+        .control-group input[type="number"], .control-group select { width: 90%; padding: 8px; border: 1px solid #ddd; border-radius: 3px; }
+        button { padding: 10px 15px; background-color: #007bff; color: white; border: none; border-radius: 3px; cursor: pointer; margin-right: 5px; }
+        button:hover { background-color: #0056b3; }
+        h2, h3 { margin-top: 0; }
+        textarea { width: 95%; min-height: 100px; padding: 5px; border: 1px solid #ddd; }
+    </style>
+</head>
+<body>
+    <h1>Phaser Qix Level Editor</h1>
+
+    <div class="control-group">
+        <label for="level-select">Edit Level:</label>
+        <select id="level-select"></select>
+        <button id="load-level-button">Load Level Data</button>
+    </div>
+
+    <div id="editor-container">
+        <div id="phaser-canvas-container">
+            <!-- Phaser canvas will be injected here -->
+        </div>
+
+        <div id="controls-panel">
+            <h3>Block Editing</h3>
+            <div class="control-group">
+                <label for="block-type-select">Block Type:</label>
+                <select id="block-type-select">
+                    <!-- Options will be populated by JS -->
+                </select>
+            </div>
+            <button id="generate-initial-blocks-button">Generate Initial Blocks (Cover Chibi)</button>
+            <button id="clear-all-blocks-button">Clear All Blocks</button>
+
+            <h3>Bomb Availability</h3>
+            <div id="bomb-counts-container">
+                <!-- Bomb count inputs will be populated here -->
+            </div>
+            <div class="control-group">
+                <label for="unlocked-bomb-select">Unlocked Bomb (at level start):</label>
+                <select id="unlocked-bomb-select">
+                    <option value="">None</option>
+                    <!-- Bomb types will be populated here -->
+                </select>
+            </div>
+
+            <h3>Level Settings</h3>
+             <div class="control-group">
+                <label for="target-percentage-input">Target Percentage:</label>
+                <input type="number" id="target-percentage-input" value="85" min="1" max="100">
+            </div>
+            <div class="control-group">
+                <label for="max-shots-input">Max Shots:</label>
+                <input type="number" id="max-shots-input" value="20" min="1" max="100">
+            </div>
+
+
+            <h3>Save/Export</h3>
+            <button id="save-level-button">Generate Level Data (JSON)</button>
+            <div class="control-group">
+                <h4>level_config.json</h4>
+                <textarea id="level-config-output" readonly placeholder="JSON for level_config.json will appear here..."></textarea>
+            </div>
+            <div class="control-group">
+                <h4>block_layout.json</h4>
+                <textarea id="block-layout-output" readonly placeholder="JSON for block_layout.json will appear here..."></textarea>
+            </div>
+            <div class="control-group">
+                <h4>available_bombs.json</h4>
+                <textarea id="available-bombs-output" readonly placeholder="JSON for available_bombs.json will appear here..."></textarea>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let editorSceneInstance;
+
+        function populateLevelSelector() {
+            const levelSelect = document.getElementById('level-select');
+            for (let i = 1; i <= 30; i++) { // Assuming 30 levels
+                const option = document.createElement('option');
+                option.value = i;
+                option.textContent = `Level ${i}`;
+                levelSelect.appendChild(option);
+            }
+        }
+        
+        window.onload = () => {
+            populateLevelSelector();
+
+            const config = {
+                type: Phaser.AUTO,
+                width: 1920, 
+                height: 1080, 
+                parent: 'phaser-canvas-container',
+                backgroundColor: '#2d2d2d',
+                scene: EditorScene, // Pass the class directly, not in an array if it's the only scene to start
+            };
+
+            const game = new Phaser.Game(config);
+
+            // It's crucial that editorSceneInstance is set by the scene itself.
+            // We will rely on EditorScene.init() or EditorScene.create() to set it.
+            // The listeners below need to be robust to it not being immediately available,
+            // or we can delay setting them up until the scene signals readiness.
+
+            // Attempt to get the scene instance after a short delay, assuming it's ready.
+            // A more robust way would be to use Phaser's event system (e.g., scene.events.on('create', ...))
+            // but for simplicity in this editor, a small timeout might work if the scene initializes quickly.
+            
+            function setupEventListeners() {
+                if (!game.scene.getScene('EditorScene')) {
+                    console.warn("[HTML Setup] EditorScene not ready yet, retrying listeners setup...");
+                    setTimeout(setupEventListeners, 100); // Retry after 100ms
+                    return;
+                }
+                
+                // editorSceneInstance should be set globally by EditorScene's init/create method.
+                // If it's not set by the time the scene is active, there's an issue in EditorScene.
+                console.log("[HTML Setup] EditorScene should be ready. Setting up listeners.");
+
+                document.getElementById('level-select').addEventListener('change', (event) => {
+                    console.log('[HTML Dropdown Change] Event Fired!');
+                    if (editorSceneInstance) {
+                        const newLevel = parseInt(event.target.value);
+                        editorSceneInstance.uiSelectedLevel = newLevel;
+                        console.log(`[HTML Dropdown Change] Level selector changed to: ${newLevel}. Stored on editorSceneInstance.uiSelectedLevel: ${editorSceneInstance.uiSelectedLevel}`);
+                    } else {
+                        console.error('[HTML Dropdown Change] editorSceneInstance is STILL not defined. This is an issue.');
+                    }
+                });
+
+                document.getElementById('load-level-button').addEventListener('click', () => {
+                    console.log('[HTML Load Button Click] Clicked!');
+                    if (editorSceneInstance) {
+                        console.log('[HTML Load Button Click] editorSceneInstance is defined.');
+                        console.log(`[HTML Load Button Click] Value of editorSceneInstance.uiSelectedLevel BEFORE calculating levelToLoad: ${editorSceneInstance.uiSelectedLevel}`);
+                        const dropdownValue = document.getElementById('level-select').value;
+                        console.log(`[HTML Load Button Click] Value from document.getElementById('level-select').value: ${dropdownValue}`);
+                        
+                        const levelToLoad = editorSceneInstance.uiSelectedLevel || parseInt(dropdownValue) || 1;
+                        console.log(`[HTML Load Button Click] SUCCESSFULLY calculated levelToLoad: ${levelToLoad}. Calling loadLevelDataForEditing.`);
+                        editorSceneInstance.loadLevelDataForEditing(levelToLoad);
+                    } else {
+                        console.error('[HTML Load Button Click] editorSceneInstance is NOT defined! Cannot load level.');
+                    }
+                });
+
+                document.getElementById('generate-initial-blocks-button').addEventListener('click', () => {
+                    if (editorSceneInstance) {
+                        editorSceneInstance.generateInitialBlocks();
+                    } else { console.error('[HTML Gen Blocks Click] editorSceneInstance not defined.'); }
+                });
+
+                document.getElementById('clear-all-blocks-button').addEventListener('click', () => {
+                    if (editorSceneInstance) {
+                        editorSceneInstance.clearAllBlocks();
+                    } else { console.error('[HTML Clear Blocks Click] editorSceneInstance not defined.'); }
+                });
+                
+                document.getElementById('save-level-button').addEventListener('click', () => {
+                    if (editorSceneInstance) {
+                        editorSceneInstance.generateJsonOutput();
+                    } else { console.error('[HTML Save Level Click] editorSceneInstance not defined.'); }
+                });
+                console.log("[HTML Setup] Event listeners attached.");
+            }
+
+            setupEventListeners(); // Call the function to set up listeners
+        };
+    </script>
+</body>
+</html> 
