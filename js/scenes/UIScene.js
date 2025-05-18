@@ -13,6 +13,7 @@ class UIScene extends Phaser.Scene {
         this.progressBarBg = null;
         this.progressBar = null;
         this.progressText = null;
+        this.fullscreenButton = null;
 
         // Bomb selector UI elements
         this.bombSelectorContainer = null;
@@ -96,6 +97,7 @@ class UIScene extends Phaser.Scene {
         if (this.progressBarBg) this.progressBarBg.destroy();
         if (this.progressBar) this.progressBar.destroy();
         if (this.progressText) this.progressText.destroy();
+        if (this.fullscreenButton) this.fullscreenButton.destroy();
 
         this.shotsText = this.add.text(170, 40, 'Shots: ∞', {
             font: '28px Arial', fill: '#ffffff', stroke: '#000000', strokeThickness: 4
@@ -122,6 +124,42 @@ class UIScene extends Phaser.Scene {
         this.progressText = this.add.text(centerX, 90, '- %', {
             font: '14px Arial', fill: '#ffffff', stroke: '#000000', strokeThickness: 3
         }).setOrigin(0.5, 0.5).setDepth(this.UI_DEPTH + 2);
+
+        // Add Fullscreen Button only on non-desktop devices
+        if (!this.game.device.os.desktop) {
+            this.fullscreenButton = this.add.text(gameWidth - 60, 40, '[FS]', {
+                font: '24px Arial', 
+                fill: '#ffffff', 
+                stroke: '#000000', 
+                strokeThickness: 4,
+                backgroundColor: '#333333',
+                padding: { x: 8, y: 4 }
+            })
+            .setOrigin(1, 0.5) // Anchor to top-right
+            .setInteractive({ useHandCursor: true })
+            .setDepth(this.UI_DEPTH + 10); // Ensure it's on top
+
+            this.fullscreenButton.on('pointerdown', () => {
+                if (this.scale.isFullscreen) {
+                    this.scale.stopFullscreen();
+                    // Optionally change text: this.fullscreenButton.setText('[FS]');
+                } else {
+                    this.scale.startFullscreen();
+                    // Optionally change text: this.fullscreenButton.setText('[Exit FS]');
+                }
+            });
+
+            // Update button text on fullscreen change (e.g., if exited via ESC key)
+            this.scale.on('fullscreenchange', (isFullscreen) => {
+                if (isFullscreen) {
+                    // this.fullscreenButton.setText('[Exit FS]');
+                } else {
+                    // this.fullscreenButton.setText('[FS]');
+                }
+            });
+        } else {
+            this.fullscreenButton = null; // Ensure it's null on desktop
+        }
     }
 
     createBombSelector() {
@@ -570,6 +608,7 @@ class UIScene extends Phaser.Scene {
         if (this.progressBar && this.progressBar.scene) { this.progressBar.destroy(); this.progressBar = null; }
         if (this.progressText && this.progressText.scene) { this.progressText.destroy(); this.progressText = null; }
         if (this.selectionIndicator && this.selectionIndicator.scene) { this.selectionIndicator.destroy(); this.selectionIndicator = null; }
+        if (this.fullscreenButton && this.fullscreenButton.scene) { this.fullscreenButton.destroy(); this.fullscreenButton = null; }
         
         this.bombButtons = {}; this.bombLabels = {}; this.bombCounters = {};
 
