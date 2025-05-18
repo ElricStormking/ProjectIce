@@ -27,15 +27,15 @@ class UIScene extends Phaser.Scene {
 
     create() {
         console.log("[UIScene.create] VERY FIRST LINE IN CREATE");
-        console.log("UIScene: create called");
+        console.log("[UIScene.create] About to call setupEventListeners().");
+        this.setupEventListeners();
+
         this.gameScene = this.scene.get('GameScene');
         console.log("[UIScene.create] this.gameScene is:", this.gameScene);
         
         this.setupUICamera();
         this.createUIElements();    // For top bar UI (shots, percentage, score)
         this.createBombSelector();  // For bottom bomb selection UI
-
-        this.setupEventListeners();
 
         // Check if GameScene data was already ready when UIScene started
         const gameSceneReadyFlag = this.gameScene && this.gameScene.isInitialDataReady;
@@ -46,37 +46,40 @@ class UIScene extends Phaser.Scene {
         }
         
         console.log("UIScene: create finished");
+
+        // Make sure this.gameScene is a valid reference to the GameScene instance
+        if (this.gameScene && this.gameScene.events) {
+            this.gameScene.events.on('showVictoryScreen', this.displayVictoryPopup, this);
+        }
     }
 
     setupEventListeners() {
-        console.log("[UIScene.setupEventListeners] Called. this.gameScene is:", this.gameScene);
+        console.log("[UIScene.setupEventListeners] Called. Attempting to get GameScene reference.");
+        this.gameScene = this.scene.get('GameScene'); // Ensure we have the latest reference
+
+        console.log("[UIScene.setupEventListeners] this.gameScene reference is:", this.gameScene);
+
         if (this.gameScene && this.gameScene.events) {
-            console.log("[UIScene.setupEventListeners] GameScene and events emitter found. Attempting to attach 'initialUIDataReady' listener.");
+            console.log("[UIScene.setupEventListeners] GameScene and events emitter found. Attaching listeners.");
+
+            // Listen for initial data readiness
             this.gameScene.events.on('updateShots', this.updateShots, this);
             this.gameScene.events.on('updatePercentage', this.updatePercentage, this);
             this.gameScene.events.on('updateScore', this.updateScore, this);
             this.gameScene.events.on('bombCountUpdated', this.updateBombCounter, this);
             this.gameScene.events.on('bombTypeSelected', this.updateBombSelectionDisplay, this);
             this.gameScene.events.on('levelComplete', this.showLevelComplete, this);
+            
+            console.log("[UIScene.setupEventListeners] Attaching 'gameOver' listener to this.showGameOverScreen.");
             this.gameScene.events.on('gameOver', this.showGameOverScreen, this);
+            
             this.gameScene.events.on('refreshUI', this.refreshUIElements, this);
             this.gameScene.events.on('displayMessage', this.showMessage, this);
             this.gameScene.events.on('initialUIDataReady', this.requestInitialUIData, this);
+            this.gameScene.events.on('showVictoryScreen', this.displayVictoryPopup, this);
             console.log("UIScene: Event listeners set up with GameScene.");
         } else {
-            console.warn('[UIScene.setupEventListeners] GameScene or its events emitter not found on create. Attempting delayed setup.');
-            this.time.delayedCall(200, () => {
-                this.gameScene = this.scene.get('GameScene');
-                console.log("[UIScene.setupEventListeners] Delayed call. this.gameScene is now:", this.gameScene);
-                if (this.gameScene && this.gameScene.events) {
-                    console.log("[UIScene.setupEventListeners] Delayed call: GameScene and events emitter found. Setting up listeners.");
-                    this.setupEventListeners(); // This will re-run and set up all listeners including the new one
-                    // No need to call requestInitialUIData here directly, event will trigger it.
-                    console.log("UIScene: Event listeners set up after delay.");
-                } else {
-                    console.error("[UIScene.setupEventListeners] Delayed call: Failed to get GameScene even after delay. UI will not function correctly.");
-                }
-            });
+            console.error("[UIScene.setupEventListeners] ERROR: GameScene or GameScene.events is not available!");
         }
     }
 
@@ -94,7 +97,7 @@ class UIScene extends Phaser.Scene {
         if (this.progressBar) this.progressBar.destroy();
         if (this.progressText) this.progressText.destroy();
 
-        this.shotsText = this.add.text(170, 40, 'Shots: -', {
+        this.shotsText = this.add.text(170, 40, 'Shots: ∞', {
             font: '28px Arial', fill: '#ffffff', stroke: '#000000', strokeThickness: 4
         }).setOrigin(0.5, 0.5).setDepth(this.UI_DEPTH + 2);
         
@@ -342,7 +345,7 @@ class UIScene extends Phaser.Scene {
 
     updateShots(shots) {
         if (!this.shotsText || !this.shotsText.scene) return;
-        this.shotsText.setText(`Shots: ${shots !== undefined ? shots : '-'}`);
+        this.shotsText.setText('Shots: ∞');
     }
     
     updateScore(score) {
@@ -486,7 +489,7 @@ class UIScene extends Phaser.Scene {
     }
 
     showGameOverScreen(data = { percentage: 0, targetPercentage: 80 }) {
-        console.log("UIScene: Showing Game Over screen", data);
+        console.log("[UIScene.showGameOverScreen] METHOD ENTERED. Data:", data);
         this.clearExistingUIContainer('gameOver');
         this.containers.gameOver = this.add.container(0, 0).setDepth(this.UI_DEPTH + 10);
 
@@ -545,7 +548,7 @@ class UIScene extends Phaser.Scene {
     }
     
     shutdown() {
-        console.log("[UIScene.shutdown] UIScene shutdown method CALLED.");
+        console.log("[UIScene.shutdown] UIScene shutdown method CALLED. Removing listeners and destroying UI elements.");
         for (const key in this.containers) {
             console.log(`[UIScene.shutdown] Clearing container: ${key}`);
             if (key === 'victory' && this.containers[key]) {
@@ -582,10 +585,181 @@ class UIScene extends Phaser.Scene {
             this.gameScene.events.off('refreshUI', this.refreshUIElements, this);
             this.gameScene.events.off('displayMessage', this.showMessage, this);
             this.gameScene.events.off('initialUIDataReady', this.requestInitialUIData, this); // Make sure this is also removed
+            this.gameScene.events.off('showVictoryScreen', this.displayVictoryPopup, this); // Also remove this new listener
         } else {
             console.log("[UIScene.shutdown] GameScene or GameScene.events not available for listener removal.");
         }
         this.gameScene = null;
         console.log("[UIScene.shutdown] UIScene shutdown method COMPLETED.");
+    }
+
+    displayVictoryPopup(data) {
+        console.log("[UIScene.displayVictoryPopup] Received data:", data);
+        this.clearExistingUIContainer('victoryPopup'); // Use a unique key for this specific popup
+        this.containers.victoryPopup = this.add.container(0, 0).setDepth(this.UI_DEPTH + 10); // Consistent depth
+
+        // Optional: Add level-specific victory background and chibi (like in original showLevelComplete)
+        if (this.gameScene && data.completedLevelId) {
+            const levelNum = data.completedLevelId;
+            const victoryBgKey = `victoryBackground${levelNum}`;
+            if (this.textures.exists(victoryBgKey)) {
+                const victoryBg = this.add.image(960, 540, victoryBgKey);
+                this.containers.victoryPopup.add(victoryBg); 
+            }
+            const chibiVictoryKey = `chibi_girl${levelNum}`;
+            if (this.textures.exists(chibiVictoryKey)) {
+                const chibiImgVictory = this.add.image(Math.floor(1920 * 0.7), 1080 / 2, chibiVictoryKey);
+                this.containers.victoryPopup.add(chibiImgVictory);
+            }
+        }
+        // Note: No explicit full-screen semi-transparent overlay is added here, to match user request.
+        // If a background image isn't present, the popup elements will appear over GameScene.
+
+        const title = this.add.text(960, 200, 'Level Cleared!', { 
+            font: '60px Arial', fill: '#00ff00', stroke: '#000', strokeThickness: 6 
+        }).setOrigin(0.5);
+        this.containers.victoryPopup.add(title);
+
+        const revealedText = this.add.text(960, 300, `Revealed: ${data.revealPercentage || 0}%`, { 
+            font: '40px Arial', fill: '#fff', stroke: '#000', strokeThickness: 4 
+        }).setOrigin(0.5);
+        this.containers.victoryPopup.add(revealedText);
+        
+        const starsEarned = data.starsEarned || 0;
+        let starDisplay = '';
+        for (let i = 0; i < 3; i++) {
+            starDisplay += (i < starsEarned) ? '★' : '☆'; // Placeholder text stars
+            // For image stars: this.add.image(960 - 50 + (i * 50), 350, (i < starsEarned) ? 'star_full_ui' : 'star_empty_ui');
+        }
+        const starsText = this.add.text(960, 350, starDisplay, { 
+            font: '50px Arial', fill: '#FFD700', stroke: '#000', strokeThickness: 3 
+        }).setOrigin(0.5);
+        this.containers.victoryPopup.add(starsText);
+
+        const bonus = (data.shotsRemaining !== undefined ? data.shotsRemaining : (this.gameScene ? this.gameScene.shotsRemaining : 0)) * 100;
+        const scoreTextContent = `Score: ${data.score || 0}`;
+        const bonusTextContent = `Shot Bonus: ${bonus}`;
+        const totalScoreContent = `Total: ${(data.score || 0) + bonus}`;
+
+        const scoreText = this.add.text(960, 410, scoreTextContent, { font: '36px Arial', fill: '#fff', stroke: '#000', strokeThickness: 4 }).setOrigin(0.5);
+        const bonusText = this.add.text(960, 460, bonusTextContent, { font: '36px Arial', fill: '#fff', stroke: '#000', strokeThickness: 4 }).setOrigin(0.5);
+        const totalScoreText = this.add.text(960, 510, totalScoreContent, { font: '40px Arial', fill: '#ff0', stroke: '#000', strokeThickness: 4 }).setOrigin(0.5);
+        this.containers.victoryPopup.add([scoreText, bonusText, totalScoreText]);
+
+        let hasNextLevel = false;
+        if (this.gameScene && this.gameScene.levelManager) {
+            // Assuming LevelManager has a way to check if there is a level after data.completedLevelId
+            // This might need adjustment based on LevelManager's actual API for max levels or next level existence.
+            // For now, a simple check against a hypothetical total number of levels:
+            const totalLevels = 30; // Example: Get this from LevelManager if possible
+            hasNextLevel = data.completedLevelId < totalLevels;
+        }
+
+        // Determine if HCG reward should be unlocked
+        const hcgUnlocked = this.isHCGUnlocked(data.completedLevelId, starsEarned);
+        const buttonSpacing = 200;
+        const buttonY = 800; // Base Y for buttons
+
+        // Calculate number of buttons to position them properly
+        const numButtons = 2 + (hasNextLevel ? 1 : 0) + (hcgUnlocked ? 1 : 0);
+        const totalWidth = (numButtons - 1) * buttonSpacing;
+        const startX = 960 - totalWidth / 2;
+        
+        let buttonIndex = 0;
+
+        // Play Again Button
+        this._createButton(this.containers.victoryPopup, startX + buttonSpacing * buttonIndex++, buttonY, 'Play Again', '#1a6dd5', () => {
+            console.log("[UIScene VictoryPopup PlayAgainButton] Clicked.");
+            this.clearExistingUIContainer('victoryPopup');
+            if (this.gameScene) this.gameScene.scene.restart();
+            this.scene.restart(); // Restart UIScene to clear its state as well
+        });
+
+        // HCG Reward Button (conditional)
+        if (hcgUnlocked) {
+            this._createButton(this.containers.victoryPopup, startX + buttonSpacing * buttonIndex++, buttonY, 'HCG Reward!', '#d51a7b', () => {
+                console.log("[UIScene VictoryPopup HCGRewardButton] Clicked.");
+                
+                // Pause this scene but keep it active in the background
+                this.scene.pause();
+                
+                // Start the HCGScene with the current level data
+                this.scene.run('HCGScene', {
+                    levelId: data.completedLevelId,
+                    starsEarned: starsEarned,
+                    victoryData: data,
+                    uiSceneKey: this.scene.key
+                });
+            });
+        } else if (data.completedLevelId >= 5 && data.completedLevelId % 5 === 0) {
+            // Show locked reward button for milestone levels
+            const lockedButton = this._createButton(this.containers.victoryPopup, startX + buttonSpacing * buttonIndex++, buttonY, 'HCG Locked', '#777777', () => {
+                this.showMessage({ 
+                    message: 'Unlock this reward by earning 3 stars!', 
+                    duration: 2000,
+                    style: { fill: '#ff9999' } 
+                });
+            });
+            lockedButton.setAlpha(0.6);
+        } else if (data.revealPercentage >= 80) {
+            // Show locked reward button for non-milestone levels if they at least passed the level
+            const lockedButton = this._createButton(this.containers.victoryPopup, startX + buttonSpacing * buttonIndex++, buttonY, 'HCG Locked', '#777777', () => {
+                this.showMessage({ 
+                    message: 'Unlock this reward by earning at least 2 stars!', 
+                    duration: 2000,
+                    style: { fill: '#ff9999' } 
+                });
+            });
+            lockedButton.setAlpha(0.6);
+        }
+
+        // Next Level Button (conditional)
+        if (hasNextLevel) {
+            this._createButton(this.containers.victoryPopup, startX + buttonSpacing * buttonIndex++, buttonY, 'Next Level', '#22aa22', () => {
+                console.log("[UIScene VictoryPopup NextLevelButton] Clicked.");
+                this.clearExistingUIContainer('victoryPopup');
+                if (this.gameScene && this.gameScene.scene.isActive()) {
+                    console.log("[UIScene VictoryPopup NextLevelButton] Stopping GameScene.");
+                    this.gameScene.scene.stop();
+                }
+                
+                // Instead of going directly to StoryMapScene, go to CGScene first
+                console.log("[UIScene VictoryPopup NextButton] Starting CGScene to show story image.");
+                this.scene.stop(); // Stop UIScene itself
+                
+                // Start the CGScene with the relevant data
+                this.scene.start('CGScene', { 
+                    levelId: data.completedLevelId, 
+                    starsEarned: data.starsEarned,
+                    score: data.score,
+                    revealPercentage: data.revealPercentage
+                });
+            });
+        }
+    }
+    
+    // New method to check if HCG reward should be unlocked
+    isHCGUnlocked(levelId, starsEarned) {
+        // Special milestone levels require 3 stars
+        if (levelId && (levelId === 5 || levelId === 10 || levelId === 15 || 
+                        levelId === 20 || levelId === 25 || levelId === 30)) {
+            return starsEarned >= 3;
+        }
+        
+        // All other levels require at least 2 stars
+        return starsEarned >= 2;
+    }
+
+    // Add a method to check if a level's HCG is unlocked based on stars
+    canViewHCGInAlbum(levelId) {
+        // Check for milestone levels (require 3 stars)
+        const isMilestoneLevel = (levelId % 5 === 0);
+        const requiredStars = isMilestoneLevel ? 3 : 2;
+        
+        // Get progress from the scene's player progress data
+        const progress = this.scene.get('StoryMapScene').playerProgress[levelId];
+        
+        // Level must have enough stars to be viewable
+        return progress && progress.stars >= requiredStars;
     }
 } 

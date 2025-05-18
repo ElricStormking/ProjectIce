@@ -4,16 +4,19 @@ class AudioManager {
         this.scene = scene;
         this.bgMusic = null;
         this.victoryMusic = null;
-        this.soundsEnabled = true;
         this.soundCache = {};
         this.isInitialized = false;
+        
+        // Default values (will be overridden by loadAudioPreferences if available)
+        this.musicEnabled = true;
+        this.soundsEnabled = true;
+        this.masterVolume = 0.8;
         
         // Check if the sound system is available
         this.hasAudio = this.checkAudioAvailability();
         
-        // Audio state
-        this.musicEnabled = true;
-        this.masterVolume = 0.8;
+        // Load audio preferences from localStorage
+        this.loadAudioPreferences();
         
         // Voice congratulation messages - get from scene if available
         this.voiceMessages = this.scene.voiceMessages || [
@@ -31,6 +34,26 @@ class AudioManager {
         this.congratulationText = null;
         
         console.log("AudioManager constructor called");
+    }
+    
+    // Load audio preferences from localStorage
+    loadAudioPreferences() {
+        try {
+            const savedPrefs = localStorage.getItem('phaserQixAudioPrefs');
+            if (savedPrefs) {
+                const prefs = JSON.parse(savedPrefs);
+                this.musicEnabled = prefs.musicEnabled !== undefined ? prefs.musicEnabled : true;
+                this.soundsEnabled = prefs.soundEnabled !== undefined ? prefs.soundEnabled : true;
+                
+                console.log(`AudioManager: Loaded preferences - Music: ${this.musicEnabled}, Sound: ${this.soundsEnabled}`);
+            } else {
+                // Default values already set in constructor
+                console.log("AudioManager: No saved preferences found, using defaults");
+            }
+        } catch (error) {
+            console.error("Error loading audio preferences:", error);
+            // Default values already set in constructor
+        }
     }
     
     // Check if audio is available in the current environment
@@ -181,7 +204,7 @@ class AudioManager {
                     console.log(`Creating audio with key: ${musicKeyToPlay}`);
                     
                     this.bgMusic = this.scene.sound.add(musicKeyToPlay, {
-                        volume: 0.4 * this.masterVolume,
+                        volume: 0.4,
                         loop: true
                     });
                     
@@ -230,7 +253,7 @@ class AudioManager {
                 }
                 console.log("AudioManager: Starting victoryMusic...");
                 this.victoryMusic = this.scene.sound.add('victoryMusic', {
-                    volume: 0.6 * this.masterVolume,
+                    volume: 0.6,
                     loop: false
                 });
                 if (this.victoryMusic) {
@@ -249,8 +272,8 @@ class AudioManager {
             try {
                 // Check if sounds are enabled
                 if (!this.soundsEnabled) {
-                    console.log(`Sounds disabled, skipping SFX: ${key}`);
-                    return;
+                    console.log(`Sounds disabled, not playing: ${key}`);
+                    return null;
                 }
                 
                 // Set default options
@@ -265,7 +288,7 @@ class AudioManager {
                 // Check if the sound exists
                 if (!this.scene.cache.audio.exists(key)) {
                     console.warn(`SFX not found in cache: ${key}`);
-                    return;
+                    return null;
                 }
                 
                 try {
@@ -293,8 +316,9 @@ class AudioManager {
                 } catch (sfxErr) {
                     console.error(`Error creating SFX ${key}:`, sfxErr);
                 }
-            } catch (error) {
-                console.error(`Error in playSFX(${key}):`, error);
+            } catch (err) {
+                console.error(`Error playing sound effect (${key}):`, err);
+                return null;
             }
         };
         
@@ -366,9 +390,8 @@ class AudioManager {
             try {
                 console.log("Attempting to play game over sound...");
                 
-                // Check if sounds are enabled
                 if (!this.soundsEnabled) {
-                    console.log("Sounds disabled, skipping game over sound");
+                    console.log("AudioManager: Sounds disabled, skipping game over sound");
                     return;
                 }
                 
@@ -379,7 +402,7 @@ class AudioManager {
                     console.warn("gameOverSound asset not found in cache");
                 }
             } catch (err) {
-                console.error("Error in playGameOverSound:", err);
+                console.error("Error playing game over sound:", err);
             }
         };
         
@@ -400,7 +423,12 @@ class AudioManager {
 
         this.playRandomVoiceMessage = () => {
             try {
-                if (!this.soundsEnabled || !this.scene || !this.scene.sound) return;
+                if (!this.soundsEnabled) {
+                    console.log("AudioManager: Sounds disabled, skipping voice message");
+                    return;
+                }
+                
+                if (!this.scene || !this.scene.sound) return;
 
                 const randomIndex = Math.floor(Math.random() * this.voiceMessages.length);
                 const messageKey = this.voiceMessages[randomIndex];
@@ -410,17 +438,17 @@ class AudioManager {
                 this.displayCongratulationText(messageKey); // Display text via AudioManager
 
                 if (this.scene.cache.audio.exists(audioKey)) {
-                    this.playSFX(audioKey, { volume: 0.7 * this.masterVolume });
+                    this.playSFX(audioKey, { volume: 0.7 });
                 } else {
                     console.warn(`Voice audio not found in cache: ${audioKey}. Attempting direct load as fallback.`);
                     // Fallback: try to load and play directly if not in cache (less ideal)
                     // This part might be removed if LoadingScene guarantees all voice files
                     const audio = new Audio(`assets/audio/voice/${messageKey}.mp3`);
-                    audio.volume = 0.7 * this.masterVolume;
+                    audio.volume = 0.7;
                     audio.play().catch(e => console.error(`Error playing voice directly: ${messageKey}`, e));
                 }
-            } catch (error) {
-                console.error("Error in AudioManager.playRandomVoiceMessage:", error);
+            } catch (err) {
+                console.error("Error playing random voice message:", err);
             }
         };
 
@@ -504,6 +532,22 @@ class AudioManager {
                 this.scene.cameras.main.shake(300, 0.01);
             } catch (error) {
                 console.error("Error in AudioManager.displaySpecialClearText:", error);
+            }
+        };
+
+        // Play a sound by key
+        this.playSound = (key, options = {}) => {
+            try {
+                // Check if sounds are enabled
+                if (!this.soundsEnabled) {
+                    console.log(`AudioManager: Sounds disabled, not playing sound: ${key}`);
+                    return null;
+                }
+                
+                return this.playSFX(key, options);
+            } catch (err) {
+                console.error(`Error in playSound(${key}):`, err);
+                return null;
             }
         };
     }

@@ -10,9 +10,6 @@ class CollisionManager {
     constructor(scene) {
         this.scene = scene;
         this.debugMode = this.scene.debugMode || false;
-        if (this.debugMode) {
-            console.log("[CollisionManager] Initialized");
-        }
     }
 
     /**
@@ -20,16 +17,9 @@ class CollisionManager {
      */
     initialize() {
         if (!this.scene || !this.scene.matter || !this.scene.matter.world) {
-            console.error("[CollisionManager] Scene or matter world not available for collision setup.");
             return;
         }
-        // Register the main collision event listener
-        // The actual handler function (this.handleCollisionStart) will be implemented
-        // to delegate to more specific handlers or call back to GameScene.
         this.scene.matter.world.on('collisionstart', this.handleCollisionStart, this);
-        if (this.debugMode) {
-            console.log("[CollisionManager] 'collisionstart' event listener registered.");
-        }
     }
 
     /**
@@ -39,214 +29,185 @@ class CollisionManager {
      */
     handleCollisionStart(event) {
         if (!event || !event.pairs) {
-            if (this.debugMode) {
-                console.error("[CollisionManager] Invalid collision event received:", event);
-            }
             return;
         }
 
-        if (this.debugMode) {
-            console.log("[CollisionManager] CollisionStart event triggered with", event.pairs.length, "pairs.");
-        }
+        const pairs = event.pairs;
+        let overallBombExploded = false; // Tracks if any bomb exploded in this event
+        let overallBombStuck = false;    // Tracks if any bomb got stuck
 
-        try { // Outer try for the whole handler
-            if (this.debugMode) console.log("[CollisionManager] Processing CollisionStart event internally.");
-
-            const pairs = event.pairs;
-            let overallBombExploded = false; // Tracks if any bomb exploded in this event
-            let overallBombStuck = false;    // Tracks if any bomb got stuck
-
-            // Process pairs in a try-catch to handle errors within loop gracefully
-            try {
-                const activeBomb = this.scene.bombLauncher ? this.scene.bombLauncher.getActiveLaunchedBomb() : null;
-                
-                if (!activeBomb) {
-                    if (this.debugMode) console.log("[CollisionManager] No active bomb to process collisions for.");
-                    return;
-                }
-
-                if (activeBomb.hasExploded && !(activeBomb.isSticky || activeBomb.isDriller)) { // Allow processing for sticky/driller even if marked exploded by a previous pair
-                    if (this.debugMode) console.log("[CollisionManager] Ignoring collision for already definitively exploded bomb.");
-                    return;
-                }
-                
-                if (!activeBomb.active || !activeBomb.body) {
-                    if (this.debugMode) console.log("[CollisionManager] No active bomb with body to process collisions for.");
-                    return;
-                }
-
-                // Special handling for ricochet bombs - they don't explode on *block* collision through this path
-                if (activeBomb.isRicochet || activeBomb.bombType === this.scene.BOMB_TYPES.RICOCHET) {
-                    // Ricochet logic for block hits (if any beyond physics) would be in _handleBombToBlockCollision
-                    // Here, we are checking before iterating pairs for general ricochet state.
-                    // The main ricochet bounce off boundaries or blocks is handled by physics or specific handlers.
-                }
-
-                for (let i = 0; i < pairs.length; i++) {
-                    let bombTypeCurrentPair; // Declared here for wider scope within the loop iteration
-                    
-                    try { // Inner try for individual pair processing
-                        const bodyA = pairs[i].bodyA;
-                        const bodyB = pairs[i].bodyB;
-                        
-                        if (!bodyA || !bodyB) continue;
-                        if ((!bodyA.gameObject && !bodyA.label)) continue; // Check if it's a game object OR a labeled body
-                        if ((!bodyB.gameObject && !bodyB.label)) continue;
-                        
-                        let bombBody, otherBody;
-                        
-                        if (bodyA.gameObject === activeBomb) {
-                            bombBody = bodyA;
-                            otherBody = bodyB;
-                        } else if (bodyB.gameObject === activeBomb) {
-                            bombBody = bodyB;
-                            otherBody = bodyA;
-                        } else {
-                            continue; // This pair doesn't involve the active bomb
-                        }
-                            
-                        const bombX = activeBomb.x;
-                        const bombY = activeBomb.y;
-                        bombTypeCurrentPair = activeBomb.bombType || this.scene.BOMB_TYPES.BLAST;
-                            
-                        // Collision with reflectiveBorder (Boundary)
-                        if (!otherBody.gameObject && otherBody.label === 'reflectiveBorder') {
-                            if (typeof this.handleBouncyBlock === 'function') {
-                                // Create a representation for the border block
-                                 const borderBlockRepresentation = { 
-                                    body: otherBody, 
-                                    x: (otherBody.bounds.min.x + otherBody.bounds.max.x) / 2,
-                                    y: (otherBody.bounds.min.y + otherBody.bounds.max.y) / 2,
-                                    // isReflectiveBorder: true // Could add a flag if needed by handler
-                                };
-                                this.handleBouncyBlock(borderBlockRepresentation, activeBomb);
-                            }
-                            if (activeBomb.bombType === this.scene.BOMB_TYPES.RICOCHET) {
-                                activeBomb.isRicochet = true; 
-                                activeBomb.lastBounceTime = Date.now();
-                                activeBomb.lastBounceX = activeBomb.x;
-                                activeBomb.lastBounceY = activeBomb.y;
-                            }
-                            // For reflective borders, we usually don't "explode" the bomb.
-                            // The bounce is the primary interaction.
-                            // We might want to `continue` to the next pair.
-                            continue; 
-                        }
-                        
-                        // Collision with a GameObject (e.g., an ice block)
-                        if (otherBody.gameObject) {
-                            const collidedObject = otherBody.gameObject;
-                            if (!collidedObject.scene) { // Check if block is still valid
-                                if (this.debugMode) console.log("[CollisionManager] Collided object no longer exists in scene.");
-                                continue;
-                            }
-
-                            // Check if collidedObject is another bomb
-                            const isOtherObjectABomb = collidedObject.bombType && 
-                                                       (collidedObject.isLaunched || collidedObject.isSticky || collidedObject.isDriller || collidedObject.isRicochet) &&
-                                                       collidedObject !== activeBomb;
-
-                            if (isOtherObjectABomb) {
-                                if (this.debugMode) console.log(`[CollisionManager] Active bomb (${activeBomb.bombType}) collided with another bomb (${collidedObject.bombType}).`);
-                                const bombToBombResult = this._handleBombToBombCollision(activeBomb, collidedObject);
-                                if (bombToBombResult.processed) {
-                                    if (bombToBombResult.exploded) overallBombExploded = true;
-                                    // If activeBomb exploded, break from pair loop
-                                    if (overallBombExploded) {
-                                         if (this.debugMode) console.log("[CollisionManager] Active bomb exploded after bomb-to-bomb collision. Breaking pair loop.");
-                                        break; 
-                                    }
-                                }
-                            } else if (collidedObject.isActive && this.scene.iceBlocks && this.scene.iceBlocks.includes(collidedObject)) {
-                                // It's an ice block, call the specific handler for bomb-to-block collisions
-                                const collisionResult = this._handleBombToBlockCollision(activeBomb, collidedObject, bombTypeCurrentPair, bombX, bombY);
-                                if (collisionResult.processed) {
-                                    if (collisionResult.hasExploded) overallBombExploded = true;
-                                    if (collisionResult.bombStuck) overallBombStuck = true;
-
-                                    // If a standard bomb exploded, it shouldn't process more pairs in this event.
-                                    // Sticky/Driller might continue to exist.
-                                    if (collisionResult.hasExploded && 
-                                        bombTypeCurrentPair !== this.scene.BOMB_TYPES.STICKY &&
-                                        bombTypeCurrentPair !== this.scene.BOMB_TYPES.DRILLER &&
-                                        bombTypeCurrentPair !== this.scene.BOMB_TYPES.RICOCHET) {
-                                        break; // Break from the for-loop over pairs
-                                    }
-                                }
-                            }
-                        }
-                    } catch (error_pair) {
-                        console.error("[CollisionManager] Error processing collision pair:", error_pair, "Pair Index:", i, "BombType for pair:", bombTypeCurrentPair);
-                    }
-                    // Check if a standard bomb has exploded to break out of the loop.
-                    // This needs careful handling if overallBombExploded is set by _handleBombToBlockCollision
-                    if (overallBombExploded && 
-                        bombTypeCurrentPair !== this.scene.BOMB_TYPES.STICKY &&
-                        bombTypeCurrentPair !== this.scene.BOMB_TYPES.DRILLER &&
-                        bombTypeCurrentPair !== this.scene.BOMB_TYPES.RICOCHET) {
-                        break; 
-                    }
-                } // End of for loop for pairs
-            } catch (error_main_pairs_process) {
-                console.error("[CollisionManager] Error in main collision pairs processing block:", error_main_pairs_process);
-            } finally { // This finally block is for the inner try that starts with `const activeBomb = ...`
-                // This block executes regardless of an error in the pairs processing.
-                // Schedule bomb reset in GameScene if a bomb exploded or got stuck, and shots remain.
-                if ((overallBombExploded || overallBombStuck) && this.scene.shotsRemaining > 0) {
-                    if (this.debugMode) console.log(`[CollisionManager] Scheduling bomb reset in GameScene due to explosion (${overallBombExploded}) or stuck (${overallBombStuck})`);
-                    this.scene.time.delayedCall(1000, () => {
-                        const noBombAvailable = (!this.scene.bombLauncher || !this.scene.bombLauncher.bomb) && !this.scene.bomb;
-                        if (noBombAvailable && typeof this.scene.resetBomb === 'function') {
-                            this.scene.resetBomb();
-                        }
-                    });
-                } else if (overallBombExploded || overallBombStuck) { // No shots remaining, but bomb action occurred
-                     if (typeof this.scene.checkLevelCompletion === 'function') {
-                        this.scene.checkLevelCompletion(); // Check if level is complete or game over
-                    }
-                }
-
-                // Bomb destruction logic if it truly exploded (non-sticky, non-driller, non-ricochet)
-                // This needs to reference `activeBomb` which is only in scope if the inner try didn't fail early.
-                // This part is tricky because `activeBomb` might be from the outer scope.
-                // Let's get activeBomb again, or rely on the flags.
-                const finalActiveBomb = this.scene.bombLauncher ? this.scene.bombLauncher.getActiveLaunchedBomb() : null;
-                if (finalActiveBomb && overallBombExploded &&
-                    finalActiveBomb.bombType !== this.scene.BOMB_TYPES.STICKY &&
-                    finalActiveBomb.bombType !== this.scene.BOMB_TYPES.DRILLER &&
-                    finalActiveBomb.bombType !== this.scene.BOMB_TYPES.RICOCHET) {
-                    
-                    if (finalActiveBomb.countdownText && finalActiveBomb.countdownText.scene) {
-                        finalActiveBomb.countdownText.destroy();
-                        finalActiveBomb.countdownText = null;
-                    }
-                    if (finalActiveBomb.countdown) {
-                        finalActiveBomb.countdown.remove();
-                        finalActiveBomb.countdown = null;
-                    }
-
-                    if (finalActiveBomb.scene) finalActiveBomb.destroy();
-                    if (this.debugMode) console.log(`[CollisionManager] Called finalActiveBomb.destroy() for exploded ${finalActiveBomb.bombType}`);
-                    
-                    if (this.scene.bombLauncher && this.scene.bombLauncher.bomb === finalActiveBomb) {
-                        this.scene.bombLauncher.bomb = null;
-                        this.scene.bombLauncher.bombState.active = false;
-                    }
-                    if (this.scene.bomb === finalActiveBomb) {
-                        this.scene.bomb = null;
-                    }
-                }
-            } // End of finally for inner try
-        } catch (error) { // Outer catch for the whole handler
-            console.error("[CollisionManager] Outer error in handleCollisionStart:", error);
-            // Attempt a safe reset if an unexpected error occurs in the handler's main structure
-            if (typeof this.scene.resetBomb === 'function') {
-                this.scene.time.delayedCall(1000, () => {
-                     const noBombAvailable = (!this.scene.bombLauncher || !this.scene.bombLauncher.bomb) && !this.scene.bomb;
-                     if (this.scene.shotsRemaining > 0 && noBombAvailable) this.scene.resetBomb();
-                });
+        // Process pairs in a try-catch to handle errors within loop gracefully
+        try {
+            const activeBomb = this.scene.bombLauncher ? this.scene.bombLauncher.getActiveLaunchedBomb() : null;
+            
+            if (!activeBomb) {
+                return;
             }
-        }
+
+            if (activeBomb.hasExploded && !(activeBomb.isSticky || activeBomb.isDriller)) { // Allow processing for sticky/driller even if marked exploded by a previous pair
+                return;
+            }
+            
+            if (!activeBomb.active || !activeBomb.body) {
+                return;
+            }
+
+            // Special handling for ricochet bombs - they don't explode on *block* collision through this path
+            if (activeBomb.isRicochet || activeBomb.bombType === this.scene.BOMB_TYPES.RICOCHET) {
+                // Ricochet logic for block hits (if any beyond physics) would be in _handleBombToBlockCollision
+                // Here, we are checking before iterating pairs for general ricochet state.
+                // The main ricochet bounce off boundaries or blocks is handled by physics or specific handlers.
+            }
+
+            for (let i = 0; i < pairs.length; i++) {
+                let bombTypeCurrentPair; // Declared here for wider scope within the loop iteration
+                
+                try { // Inner try for individual pair processing
+                    const bodyA = pairs[i].bodyA;
+                    const bodyB = pairs[i].bodyB;
+                    
+                    if (!bodyA || !bodyB) continue;
+                    if ((!bodyA.gameObject && !bodyA.label)) continue; // Check if it's a game object OR a labeled body
+                    if ((!bodyB.gameObject && !bodyB.label)) continue;
+                    
+                    let bombBody, otherBody;
+                    
+                    if (bodyA.gameObject === activeBomb) {
+                        bombBody = bodyA;
+                        otherBody = bodyB;
+                    } else if (bodyB.gameObject === activeBomb) {
+                        bombBody = bodyB;
+                        otherBody = bodyA;
+                    } else {
+                        continue; // This pair doesn't involve the active bomb
+                    }
+                        
+                    const bombX = activeBomb.x;
+                    const bombY = activeBomb.y;
+                    bombTypeCurrentPair = activeBomb.bombType || this.scene.BOMB_TYPES.BLAST;
+                        
+                    // Collision with reflectiveBorder (Boundary)
+                    if (!otherBody.gameObject && otherBody.label === 'reflectiveBorder') {
+                        if (typeof this.handleBouncyBlock === 'function') {
+                            // Create a representation for the border block
+                             const borderBlockRepresentation = { 
+                                body: otherBody, 
+                                x: (otherBody.bounds.min.x + otherBody.bounds.max.x) / 2,
+                                y: (otherBody.bounds.min.y + otherBody.bounds.max.y) / 2,
+                                // isReflectiveBorder: true // Could add a flag if needed by handler
+                            };
+                            this.handleBouncyBlock(borderBlockRepresentation, activeBomb);
+                        }
+                        if (activeBomb.bombType === this.scene.BOMB_TYPES.RICOCHET) {
+                            activeBomb.isRicochet = true; 
+                            activeBomb.lastBounceTime = Date.now();
+                            activeBomb.lastBounceX = activeBomb.x;
+                            activeBomb.lastBounceY = activeBomb.y;
+                        }
+                        // For reflective borders, we usually don't "explode" the bomb.
+                        // The bounce is the primary interaction.
+                        // We might want to `continue` to the next pair.
+                        continue; 
+                    }
+                    
+                    // Collision with a GameObject (e.g., an ice block)
+                    if (otherBody.gameObject) {
+                        const collidedObject = otherBody.gameObject;
+                        if (!collidedObject.scene) { // Check if block is still valid
+                            continue;
+                        }
+
+                        // Check if collidedObject is another bomb
+                        const isOtherObjectABomb = collidedObject.bombType && 
+                                                   (collidedObject.isLaunched || collidedObject.isSticky || collidedObject.isDriller || collidedObject.isRicochet) &&
+                                                   collidedObject !== activeBomb;
+
+                        if (isOtherObjectABomb) {
+                            const bombToBombResult = this._handleBombToBombCollision(activeBomb, collidedObject);
+                            if (bombToBombResult.processed) {
+                                if (bombToBombResult.exploded) overallBombExploded = true;
+                                // If activeBomb exploded, break from pair loop
+                                if (overallBombExploded) {
+                                    break; 
+                                }
+                            }
+                        } else if (collidedObject.isActive && this.scene.iceBlocks && this.scene.iceBlocks.includes(collidedObject)) {
+                            // It's an ice block, call the specific handler for bomb-to-block collisions
+                            const collisionResult = this._handleBombToBlockCollision(activeBomb, collidedObject, bombTypeCurrentPair, bombX, bombY);
+                            if (collisionResult.processed) {
+                                if (collisionResult.hasExploded) overallBombExploded = true;
+                                if (collisionResult.bombStuck) overallBombStuck = true;
+
+                                // If a standard bomb exploded, it shouldn't process more pairs in this event.
+                                // Sticky/Driller might continue to exist.
+                                if (collisionResult.hasExploded && 
+                                    bombTypeCurrentPair !== this.scene.BOMB_TYPES.STICKY &&
+                                    bombTypeCurrentPair !== this.scene.BOMB_TYPES.DRILLER &&
+                                    bombTypeCurrentPair !== this.scene.BOMB_TYPES.RICOCHET) {
+                                    break; // Break from the for-loop over pairs
+                                }
+                            }
+                        }
+                    }
+                } catch (error_pair) {
+                    console.error("[CollisionManager] Error processing collision pair:", error_pair, "Pair Index:", i, "BombType for pair:", bombTypeCurrentPair);
+                }
+                // Check if a standard bomb has exploded to break out of the loop.
+                // This needs careful handling if overallBombExploded is set by _handleBombToBlockCollision
+                if (overallBombExploded && 
+                    bombTypeCurrentPair !== this.scene.BOMB_TYPES.STICKY &&
+                    bombTypeCurrentPair !== this.scene.BOMB_TYPES.DRILLER &&
+                    bombTypeCurrentPair !== this.scene.BOMB_TYPES.RICOCHET) {
+                    break; 
+                }
+            } // End of for loop for pairs
+        } catch (error_main_pairs_process) {
+            console.error("[CollisionManager] Error in main collision pairs processing block:", error_main_pairs_process);
+        } finally { // This finally block is for the inner try that starts with `const activeBomb = ...`
+            // This block executes regardless of an error in the pairs processing.
+            // Schedule bomb reset in GameScene if a bomb exploded or got stuck, and shots remain.
+            if ((overallBombExploded || overallBombStuck) && this.scene.shotsRemaining > 0) {
+                this.scene.time.delayedCall(1000, () => {
+                    const noBombAvailable = (!this.scene.bombLauncher || !this.scene.bombLauncher.bomb) && !this.scene.bomb;
+                    if (noBombAvailable && typeof this.scene.resetBomb === 'function') {
+                        this.scene.resetBomb();
+                    }
+                });
+            } else if (overallBombExploded || overallBombStuck) { // No shots remaining, but bomb action occurred
+                 if (typeof this.scene.checkLevelCompletion === 'function') {
+                    this.scene.checkLevelCompletion(); // Check if level is complete or game over
+                }
+            }
+
+            // Bomb destruction logic if it truly exploded (non-sticky, non-driller, non-ricochet)
+            // This needs to reference `activeBomb` which is only in scope if the inner try didn't fail early.
+            // This part is tricky because `activeBomb` might be from the outer scope.
+            // Let's get activeBomb again, or rely on the flags.
+            const finalActiveBomb = this.scene.bombLauncher ? this.scene.bombLauncher.getActiveLaunchedBomb() : null;
+            if (finalActiveBomb && overallBombExploded &&
+                finalActiveBomb.bombType !== this.scene.BOMB_TYPES.STICKY &&
+                finalActiveBomb.bombType !== this.scene.BOMB_TYPES.DRILLER &&
+                finalActiveBomb.bombType !== this.scene.BOMB_TYPES.RICOCHET) {
+                
+                if (finalActiveBomb.countdownText && finalActiveBomb.countdownText.scene) {
+                    finalActiveBomb.countdownText.destroy();
+                    finalActiveBomb.countdownText = null;
+                }
+                if (finalActiveBomb.countdown) {
+                    finalActiveBomb.countdown.remove();
+                    finalActiveBomb.countdown = null;
+                }
+
+                if (finalActiveBomb.scene) finalActiveBomb.destroy();
+                if (this.scene.bombLauncher && this.scene.bombLauncher.bomb === finalActiveBomb) {
+                    this.scene.bombLauncher.bomb = null;
+                    this.scene.bombLauncher.bombState.active = false;
+                }
+                if (this.scene.bomb === finalActiveBomb) {
+                    this.scene.bomb = null;
+                }
+            }
+        } // End of finally for inner try
     }
 
     /**
@@ -266,7 +227,6 @@ class CollisionManager {
         let overallBombStuck = false;
 
         activeBomb.hasHitIceBlock = true; // Still useful to set this flag on the bomb
-        if (this.debugMode) console.log("[CollisionManager._handleBombToBlockCollision] Bomb hit block. Calling activeBomb.onHitBlock().");
 
         // Bouncy block (non-border) - This specific check should be inside the bomb's onHitBlock or a general pre-check
         // For now, let's assume the bomb's onHitBlock for Ricochet or other types handles bouncy blocks appropriately.
@@ -350,12 +310,10 @@ class CollisionManager {
      */
     _handleBombToBombCollision(bombA, bombB) {
         if (!bombA || !bombA.scene || !bombB || !bombB.scene) {
-            if (this.debugMode) console.log("[CollisionManager._handleBombToBombCollision] Invalid bomb instances.");
             return { processed: false, exploded: false };
         }
 
         if (bombA.hasExploded) { // Don't re-explode bombA if it's already exploded
-            if (this.debugMode) console.log(`[CollisionManager._handleBombToBombCollision] BombA (${bombA.bombType}) already exploded. Skipping.`);
             return { processed: false, exploded: false };
         }
 
@@ -375,10 +333,6 @@ class CollisionManager {
             // and not some other miscellaneous game object that might have similar properties.
             // A simple check for bombType on bombB is a good indicator.
             if (bombB.bombType && (bombB.isLaunched || bombB.isSticky || bombB.isDriller || bombB.isRicochet)) {
-                if (this.debugMode) {
-                    console.log(`[CollisionManager._handleBombToBombCollision] ${bombA.bombType} (ID: ${bombA.id || 'N/A'}) hit ${bombB.bombType} (ID: ${bombB.id || 'N/A'}). Exploding ${bombA.bombType}.`);
-                }
-
                 const bombAX = bombA.x;
                 const bombAY = bombA.y;
 
@@ -390,11 +344,12 @@ class CollisionManager {
                     case this.scene.BOMB_TYPES.PIERCER:
                         // Piercer needs velocity. If bombA's body is gone, this might be tricky.
                         // Assume velocity is still relevant from the impact.
-                        const velocityA = bombA.body ? { x: bombA.body.velocity.x, y: bombA.body.velocity.y } : undefined;
-                        this.scene.bombUtils.handlePiercerBomb(bombAX, bombAY, velocityA);
+                        const velocityA_piercer = bombA.body ? { x: bombA.body.velocity.x, y: bombA.body.velocity.y } : { x: 0, y: 1 }; // Default if no body
+                        this.scene.bombUtils.handlePiercerBomb(bombAX, bombAY, velocityA_piercer);
                         break;
                     case this.scene.BOMB_TYPES.CLUSTER:
-                        this.scene.bombUtils.handleClusterBomb(bombAX, bombAY);
+                        const velocityA_cluster = bombA.body ? { x: bombA.body.velocity.x, y: bombA.body.velocity.y } : { x: 0, y: 0 }; // Default if no body
+                        this.scene.bombUtils.handleClusterBomb(bombAX, bombAY, velocityA_cluster);
                         break;
                     case this.scene.BOMB_TYPES.SHATTERER:
                         this.scene.bombUtils.handleShattererBomb(bombAX, bombAY);
@@ -425,10 +380,10 @@ class CollisionManager {
                 // if bombB is a type that can be chain-reacted (like Sticky via triggerStickyBomb).
                 // No direct action on bombB is needed here for its explosion, that's part of the bombA's effect.
             } else {
-                 if (this.debugMode) console.log(`[CollisionManager._handleBombToBombCollision] BombA (${bombA.bombType}) hit an object (${bombB.texture ? bombB.texture.key : 'unknown'}) that is not a recognized active bomb type. No direct bomb-to-bomb explosion.`);
+                
             }
         } else {
-            if (this.debugMode) console.log(`[CollisionManager._handleBombToBombCollision] BombA (${bombA.bombType}) is not a type that explodes on bomb-to-bomb contact. Type: ${bombA.bombType}`);
+            
         }
 
         return { processed, exploded: hasExploded };
@@ -578,6 +533,28 @@ class CollisionManager {
                 if (this.scene.bombUtils) {
                     this.scene.bombUtils.createBounceFlash(effectX, effectY);
                 }
+                
+                // NEW: Destroy blocks at bounce point for ricochet bombs
+                if (!isReflectiveBorder) { // Only destroy blocks when hitting regular blocks, not borders
+                    console.log(`[CollisionManager.handleBouncyBlock] Ricochet bomb destroying blocks at (${effectX}, ${effectY})`);
+                    
+                    // Destroy the block it collided with
+                    if (block && block.isActive && this.scene.destroyIceBlock) {
+                        this.scene.destroyIceBlock(block);
+                    }
+                    
+                    // Also destroy blocks in a small radius around the collision
+                    if (this.scene.bombUtils && this.scene.bombUtils.destroyBlocksInRadius) {
+                        this.scene.bombUtils.destroyBlocksInRadius(effectX, effectY, 40);
+                    } else if (this.scene.destroyBlocksInRadius) {
+                        this.scene.destroyBlocksInRadius(effectX, effectY, 40);
+                    }
+                    
+                    // Check for sticky bombs too
+                    if (this.scene.triggerStickyBomb) {
+                        this.scene.triggerStickyBomb(effectX, effectY, 40);
+                    }
+                }
             }
             
             // Add a camera shake effect for feedback
@@ -594,9 +571,6 @@ class CollisionManager {
     shutdown() {
         if (this.scene && this.scene.matter && this.scene.matter.world) {
             this.scene.matter.world.off('collisionstart', this.handleCollisionStart, this);
-        }
-        if (this.debugMode) {
-            console.log("[CollisionManager] Shutdown, 'collisionstart' listener removed.");
         }
     }
 } 

@@ -12,9 +12,7 @@ class BootScene extends Phaser.Scene {
     }
 
     create() {
-        console.log("BootScene: Create method called. Starting LoadingScene...");
-        // Start the LoadingScene, passing a default level number or any other initial data.
-        // Adjust levelNumber as needed for your game's starting point.
-        this.scene.start('LoadingScene', { levelNumber: 1 }); 
+        console.log("BootScene: Create method called. Starting TitleScene...");
+        this.scene.start('TitleScene');
     }
 } 

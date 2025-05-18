@@ -2,6 +2,100 @@
 class BombUtils {
     constructor(scene) {
         this.scene = scene;
+        
+        // Create bomb placeholders during initialization
+        if (this.scene && this.scene.textures) {
+            this.createBombPlaceholders();
+        } else {
+            console.warn('[BombUtils.constructor] Scene or textures not available - placeholders will be created later');
+        }
+    }
+    
+    // Create placeholder graphics for any missing bomb textures
+    createBombPlaceholders() {
+        if (!this.scene || !this.scene.textures) {
+            console.warn('[BombUtils.createBombPlaceholders] Scene or textures not available');
+            return;
+        }
+        
+        console.log('[BombUtils.createBombPlaceholders] Creating placeholder graphics for bombs');
+        
+        // Create a placeholder for the Shrapnel bomb if it doesn't exist
+        if (!this.scene.textures.exists('shrapnel_bomb')) {
+            console.log('[BombUtils.createBombPlaceholders] Creating placeholder for shrapnel_bomb');
+            
+            // Create a graphics object for the Shrapnel bomb
+            const graphics = this.scene.make.graphics();
+            
+            // Draw the bomb body (circle)
+            graphics.fillStyle(0xFF6600); // Orange color
+            graphics.fillCircle(30, 30, 30);
+            
+            // Add shrapnel-like lines radiating outward
+            graphics.lineStyle(2, 0xFFCC00); // Yellow lines
+            for (let i = 0; i < 10; i++) {
+                const angle = (i / 10) * Math.PI * 2;
+                const innerX = 30 + Math.cos(angle) * 15;
+                const innerY = 30 + Math.sin(angle) * 15;
+                const outerX = 30 + Math.cos(angle) * 35;
+                const outerY = 30 + Math.sin(angle) * 35;
+                graphics.beginPath();
+                graphics.moveTo(innerX, innerY);
+                graphics.lineTo(outerX, outerY);
+                graphics.strokePath();
+            }
+            
+            // Add inner circle to represent the explosives
+            graphics.fillStyle(0xFF3300); // Darker orange
+            graphics.fillCircle(30, 30, 15);
+            
+            // Add a highlight effect
+            graphics.fillStyle(0xFFFF99, 0.5); // Light yellow with transparency
+            graphics.fillCircle(23, 23, 8);
+            
+            // Generate texture from the graphics
+            graphics.generateTexture('shrapnel_bomb', 60, 60);
+            graphics.destroy();
+            
+            console.log('[BombUtils.createBombPlaceholders] Placeholder for shrapnel_bomb created successfully');
+        }
+        
+        // Create placeholders for other bomb types if needed
+        const bombTypes = [
+            { key: 'blast_bomb', color: 0xFF0000 },      // Red
+            { key: 'piercer_bomb', color: 0x0099FF },    // Light blue
+            { key: 'cluster_bomb', color: 0xFFFF00 },    // Yellow
+            { key: 'sticky_bomb', color: 0xFF00FF },     // Pink
+            { key: 'shatterer_bomb', color: 0xCC3333 },  // Dark red
+            { key: 'driller_bomb', color: 0xCC6600 },    // Brown
+            { key: 'ricochet_bomb', color: 0x00FFFF },   // Cyan
+            { key: 'melter_bomb', color: 0x00CC99 }      // Teal/Mint green for Melter
+        ];
+        
+        // Create simple placeholders for any other missing bomb textures
+        bombTypes.forEach(bombType => {
+            if (!this.scene.textures.exists(bombType.key)) {
+                console.log(`[BombUtils.createBombPlaceholders] Creating placeholder for ${bombType.key}`);
+                
+                const graphics = this.scene.make.graphics();
+                
+                // Draw basic bomb circle
+                graphics.fillStyle(bombType.color);
+                graphics.fillCircle(30, 30, 30);
+                
+                // Add highlight
+                graphics.fillStyle(0xFFFFFF, 0.4);
+                graphics.fillCircle(20, 20, 10);
+                
+                // Generate texture
+                graphics.generateTexture(bombType.key, 60, 60);
+                graphics.destroy();
+                
+                console.log(`[BombUtils.createBombPlaceholders] Placeholder for ${bombType.key} created successfully`);
+            }
+        });
+        
+        console.log('[BombUtils.createBombPlaceholders] Bomb placeholder creation completed');
     }
     
     // Create a dynamic bomb with appropriate physics
@@ -78,11 +172,14 @@ class BombUtils {
     
     // Handle blast bomb explosion
     handleBlastBomb(x, y) {
+        // Create explosion effect at bomb position
         this.createExplosion(x, y);
-        this.destroyBlocksInRadius(x, y, 150);
         
-        // Check if any sticky bombs are in range and trigger them
-        this.scene.triggerStickyBomb(x, y, 150);
+        // Destroy ice blocks in radius from explosion
+        this.destroyBlocksInRadius(x, y, this.EXPLOSION_RADIUS || 150);
+        
+        // Check if this was the last bomb
+        this.checkLastBombResolution();
     }
     
     // Handle piercer bomb effect
@@ -141,40 +238,74 @@ class BombUtils {
         // Clean up particles
         this.scene.time.delayedCall(500, () => {
             particles.destroy();
+            
+            // Check if this was the last bomb after effects complete
+            this.checkLastBombResolution();
         });
     }
     
     // Handle cluster bomb explosions
-    handleClusterBomb(x, y) {
+    handleClusterBomb(x, y, velocity = { x: 0, y: 1 }) { // Add velocity parameter with a default
         // Create main explosion (smaller than blast bomb)
-        this.createExplosion(x, y);
-        this.destroyBlocksInRadius(x, y, 100);
+        this.createExplosion(x, y); // Main explosion at impact
+        this.destroyBlocksInRadius(x, y, 120); // Slightly smaller radius for main impact
         
         // Check for sticky bombs in primary explosion
-        this.scene.triggerStickyBomb(x, y, 100);
+        this.scene.triggerStickyBomb(x, y, 120);
         
-        // Create 3-5 smaller explosions around the main one
-        const numClusters = Phaser.Math.Between(3, 5);
-        const clusterRadius = 150;
-        
-        for (let i = 0; i < numClusters; i++) {
-            // Calculate random positions around the main explosion
-            const angle = Math.random() * Math.PI * 2;
-            const distance = 70 + Math.random() * clusterRadius;
-            const clusterX = x + Math.cos(angle) * distance;
-            const clusterY = y + Math.sin(angle) * distance;
+        const numSubMunitions = 5;
+        const fanAngleDegrees = 140;
+        const fanAngleRadians = Phaser.Math.DegToRad(fanAngleDegrees);
+        const subMunitionTravelDistance = 200; // How far sub-munitions travel
+        const subMunitionExplosionRadius = 80; // Radius for sub-munition explosions
+        const subMunitionDelay = 200; // Base delay for sub-munitions to spread out
+
+        let baseAngle = Math.atan2(velocity.y, velocity.x); // Get angle from initial velocity
+
+        // If velocity is very low (e.g., bomb stopped mid-air), default to upward spread
+        if (Math.abs(velocity.x) < 0.1 && Math.abs(velocity.y) < 0.1) {
+            baseAngle = -Math.PI / 2; // Default to straight up if no significant velocity
+        }
+
+        // Track the number of sub-munitions that have completed
+        let completedSubMunitions = 0;
+
+        for (let i = 0; i < numSubMunitions; i++) {
+            // Calculate angle for this sub-munition
+            // Spread them across the fanAngle, centered on baseAngle
+            let currentAngleOffset;
+            if (numSubMunitions === 1) {
+                currentAngleOffset = 0; // Single sub-munition goes straight
+            } else {
+                currentAngleOffset = (-fanAngleRadians / 2) + (i * (fanAngleRadians / (numSubMunitions - 1)));
+            }
+            const subMunitionAngle = baseAngle + currentAngleOffset;
             
-            // Add delay based on distance from center
-            const delay = distance * 2;
+            // Calculate end position for the sub-munition
+            const endX = x + Math.cos(subMunitionAngle) * subMunitionTravelDistance;
+            const endY = y + Math.sin(subMunitionAngle) * subMunitionTravelDistance;
             
-            // Create delayed cluster explosion
+            // Add a slight progressive delay to make the spread feel more natural
+            const delay = subMunitionDelay + i * 50; 
+            
             this.scene.time.delayedCall(delay, () => {
-                // Create mini explosion
-                this.createMiniExplosion(clusterX, clusterY);
+                // Create a small visual trail for the sub-munition (optional)
+                this.createFragmentTrail(x, y, endX, endY, delay - 50); // Trail effect
+
+                // Create mini explosion at sub-munition end point
+                this.createMiniExplosion(endX, endY);
                 // Destroy blocks in smaller radius
-                this.destroyBlocksInRadius(clusterX, clusterY, 70);
+                this.destroyBlocksInRadius(endX, endY, subMunitionExplosionRadius);
                 // Check for sticky bombs in mini explosion
-                this.scene.triggerStickyBomb(clusterX, clusterY, 70);
+                this.scene.triggerStickyBomb(endX, endY, subMunitionExplosionRadius);
+                
+                // Track completion
+                completedSubMunitions++;
+                
+                // If this was the last sub-munition, check if it was the last bomb
+                if (completedSubMunitions === numSubMunitions) {
+                    this.checkLastBombResolution();
+                }
             });
         }
     }
@@ -352,6 +483,9 @@ class BombUtils {
         // Destroy the particle system after emissions complete
         this.scene.time.delayedCall(1000, () => {
             particles.destroy();
+            
+            // Check if this was the last bomb after all effects complete
+            this.checkLastBombResolution();
         });
         
         // Add explosion sound if available
@@ -363,6 +497,116 @@ class BombUtils {
                 console.log("Sound not available:", e);
             }
         }
+    }
+    
+    // Handle shrapnel bomb explosion
+    handleShrapnelBomb(x, y) {
+        console.log(`[BombUtils.handleShrapnelBomb] Creating explosion at (${x}, ${y})`);
+        
+        // Create initial small explosion at impact point
+        this.createExplosion(x, y);
+        
+        // Destroy blocks in small radius at impact point
+        this.destroyBlocksInRadius(x, y, 100);
+        
+        // Check for sticky bombs in initial explosion radius
+        this.scene.triggerStickyBomb(x, y, 100);
+        
+        // Create 6-10 shrapnel fragments
+        const numFragments = Phaser.Math.Between(6, 10);
+        const maxDistance = 300; // Maximum distance fragments can travel
+        
+        console.log(`[BombUtils.handleShrapnelBomb] Creating ${numFragments} fragments`);
+        
+        // Track the number of completed fragments
+        let completedFragments = 0;
+        
+        // Create fragments in all directions
+        for (let i = 0; i < numFragments; i++) {
+            // Calculate angle for even distribution
+            const angle = (i / numFragments) * Math.PI * 2;
+            
+            // Add some random variation to angle
+            const finalAngle = angle + (Math.random() - 0.5) * (Math.PI / 8);
+            
+            // Calculate random distance
+            const distance = 100 + Math.random() * (maxDistance - 100);
+            
+            // Calculate fragment position
+            const fragmentX = x + Math.cos(finalAngle) * distance;
+            const fragmentY = y + Math.sin(finalAngle) * distance;
+            
+            // Add delay based on distance from center (fragments fly outward)
+            const delay = (distance / maxDistance) * 500;
+            
+            // Create delayed fragment explosion
+            this.scene.time.delayedCall(delay, () => {
+                // Create fragment trail
+                this.createFragmentTrail(x, y, fragmentX, fragmentY, delay);
+                
+                // Create mini explosion at fragment impact
+                this.createMiniExplosion(fragmentX, fragmentY);
+                
+                // Destroy blocks in smaller radius
+                this.destroyBlocksInRadius(fragmentX, fragmentY, 40);
+                
+                // Check for sticky bombs in fragment explosion
+                this.scene.triggerStickyBomb(fragmentX, fragmentY, 40);
+                
+                // Track completed fragments
+                completedFragments++;
+                
+                // If this was the last fragment, check if it was the last bomb
+                if (completedFragments === numFragments) {
+                    // Check if this was the last bomb after all fragments complete
+                    this.checkLastBombResolution();
+                }
+            });
+        }
+        
+        // Add camera shake for primary explosion
+        this.scene.cameras.main.shake(300, 0.01);
+    }
+    
+    // Create visual trail for shrapnel fragments
+    createFragmentTrail(startX, startY, endX, endY, duration) {
+        // Create a particle emitter for the trail
+        const particles = this.scene.add.particles('particle');
+        particles.setDepth(6);
+        
+        // Calculate direction vector
+        const dirX = endX - startX;
+        const dirY = endY - startY;
+        
+        // Number of trail points
+        const numPoints = Math.min(20, Math.floor(duration / 25));
+        
+        // Create particle effects along the path
+        for (let i = 0; i < numPoints; i++) {
+            const t = i / (numPoints - 1); // 0 to 1
+            const pointX = startX + dirX * t;
+            const pointY = startY + dirY * t;
+            
+            const emitter = particles.createEmitter({
+                x: pointX,
+                y: pointY,
+                speed: { min: 5, max: 20 },
+                scale: { start: 0.3, end: 0 },
+                alpha: { start: 0.6, end: 0 },
+                lifespan: 300,
+                blendMode: 'ADD',
+                tint: 0xff6600, // Orange-ish for shrapnel
+                quantity: 1
+            });
+            
+            // Emit just one particle at this point
+            emitter.explode(2, pointX, pointY);
+        }
+        
+        // Destroy particles after effect is done
+        this.scene.time.delayedCall(600, () => {
+            particles.destroy();
+        });
     }
     
     // Migrated and adapted from GameScene.js
@@ -984,6 +1228,17 @@ class BombUtils {
             // Create a bounce flash at the bomb's position
             this.createBounceFlash(bomb.x, bomb.y);
             
+            // NEW: Destroy blocks at bounce point with a small radius
+            if (this.scene.destroyBlocksInRadius) {
+                console.log(`[BombUtils.handleRicochetBoundaryHit] Destroying blocks at bounce point (${bomb.x}, ${bomb.y})`);
+                this.destroyBlocksInRadius(bomb.x, bomb.y, 40); // Small radius for ricochet collision
+                
+                // Check if this collision destroyed any blocks
+                if (this.scene.triggerStickyBomb) {
+                    this.scene.triggerStickyBomb(bomb.x, bomb.y, 40); // Also trigger any nearby sticky bombs
+                }
+            }
+            
             // Ensure the bomb maintains sufficient velocity after boundary hit
             // Drastically reduced for gentler bounces
             const minSpeed = 25;  // Reduced from 250 to 25
@@ -1035,9 +1290,9 @@ class BombUtils {
                 }
             }
             
-            // NOTE: We're disabling the bounce limit check completely 
-            // Ricochet bombs will now only explode when the 5-second timer expires
-            // This ensures consistent behavior with the pre-refactoring version
+                // NOTE: We're disabling the bounce limit check completely 
+    // Ricochet bombs will now only explode when the 3-second timer expires
+    // They also destroy blocks on collision with non-border elements
             
             /*
             // Check if we've reached the bounce limit (original code - disabled)
@@ -1284,7 +1539,7 @@ class BombUtils {
         const countdownText = this.scene.add.text(
             bomb.x, 
             bomb.y - 30, 
-            '5', 
+            '3', 
             { 
                 fontFamily: 'Arial',
                 fontSize: '24px',
@@ -1300,8 +1555,8 @@ class BombUtils {
         // Store reference on the bomb
         bomb.countdownText = countdownText;
         
-        // Store the exact explosion time - 5 seconds from now
-        bomb.explosionTime = Date.now() + 5000;
+        // Store the exact explosion time - 3 seconds from now
+        bomb.explosionTime = Date.now() + 3000;
         bomb.countdownStarted = Date.now();
         
         // Store a reference to this for the timer
@@ -1375,7 +1630,7 @@ class BombUtils {
                 bomb.countdownTimer = self.scene.time.delayedCall(nextUpdateTime, updateCountdown);
             } else if (timeRemaining <= 0 && !bomb.hasExploded) {
                 // Time's up - explode the bomb if it hasn't already
-                console.log("Countdown reached exactly 5 seconds, triggering explosion");
+                console.log("Countdown reached exactly 3 seconds, triggering explosion");
                 self.explodeRicochetBomb(bomb);
             }
         };
@@ -1672,6 +1927,434 @@ class BombUtils {
                  this.scene.cleanupIceBlocksArray();
             } else {
                 console.warn("BombUtils.destroyBlocksWithShatterer: this.scene.cleanupIceBlocksArray is not a function.");
+            }
+        });
+    }
+
+    // Handle Melter Bomb - applies melting effect without immediate damage
+    handleMelterBomb(x, y, block) {
+        console.log(`[BombUtils.handleMelterBomb] Creating melt effect at (${x}, ${y})`);
+        
+        // If no block to melt, find closest block instead of falling back to blast bomb
+        if (!block || !block.isActive) {
+            console.log("[BombUtils.handleMelterBomb] No direct hit block, searching for nearby blocks");
+            
+            // Find closest block within a reasonable radius
+            let closestBlock = null;
+            let closestDistance = 150; // Maximum search radius
+            
+            if (this.scene.iceBlocks && this.scene.iceBlocks.length > 0) {
+                this.scene.iceBlocks.forEach(iceBlock => {
+                    if (iceBlock && iceBlock.isActive) {
+                        const distance = Phaser.Math.Distance.Between(x, y, iceBlock.x, iceBlock.y);
+                        if (distance < closestDistance) {
+                            closestDistance = distance;
+                            closestBlock = iceBlock;
+                        }
+                    }
+                });
+            }
+            
+            if (closestBlock) {
+                console.log(`[BombUtils.handleMelterBomb] Found closest block at distance ${closestDistance.toFixed(1)}`);
+                block = closestBlock;
+                // Adjust impact position to block's position for visual effect
+                x = block.x;
+                y = block.y;
+            } else {
+                // No block found within radius - create impact effect anyway
+                console.log("[BombUtils.handleMelterBomb] No blocks found within radius, showing impact effect");
+                this.createMeltImpactEffect(x, y);
+                
+                // Check if this was the last bomb and notify the game state manager
+                this.checkLastBombResolution();
+                
+                return; // No blocks to melt, early exit
+            }
+        }
+        
+        // Create enhanced visual effect at impact point (NO EXPLOSION, just visual splash)
+        this.createMeltImpactEffect(x, y);
+        
+        // Determine the target block type to melt
+        const targetBlockType = block.blockType;
+        console.log(`[BombUtils.handleMelterBomb] Target block type: ${targetBlockType}`);
+        
+        // Find up to 30 blocks of the same type within range
+        const maxBlocksToMelt = 30;
+        const melterRadius = 250; // Search radius for same-type blocks (can be adjusted)
+        const blocksToMelt = [];
+        
+        // Add the initial hit block first
+        blocksToMelt.push(block);
+        
+        // Find other blocks of the SAME TYPE
+        if (this.scene.iceBlocks) {
+            this.scene.iceBlocks.forEach(iceBlock => {
+                if (iceBlock && iceBlock.isActive && iceBlock !== block &&
+                    iceBlock.blockType === targetBlockType) { // Only same type
+                    const distance = Phaser.Math.Distance.Between(x, y, iceBlock.x, iceBlock.y);
+                    if (distance < melterRadius) {
+                        blocksToMelt.push(iceBlock);
+                    }
+                }
+            });
+        }
+        
+        // Limit to max blocks
+        const actualBlocksToMelt = blocksToMelt.slice(0, maxBlocksToMelt);
+        console.log(`[BombUtils.handleMelterBomb] Found ${actualBlocksToMelt.length} blocks of type ${targetBlockType} to melt`);
+        
+        // Create visual path effect connecting the blocks being melted
+        this.createMeltPathEffects(x, y, actualBlocksToMelt);
+        
+        // Apply melting effect over time to each block
+        actualBlocksToMelt.forEach((blockToMelt, index) => {
+            // Add progressively longer delays for each block
+            const baseDelay = 100; // base delay in ms
+            const melterSpreadDelay = baseDelay + (index * 75); // Progressive delay
+            
+            this.scene.time.delayedCall(melterSpreadDelay, () => {
+                if (blockToMelt && blockToMelt.isActive) {
+                    // Add enhanced visual melt effect to the block
+                    this.createMeltingEffect(blockToMelt); // Duration is now 2 seconds internally
+                    
+                    // Destroy block after exactly 2 seconds of melting
+                    const blockDestructionDelay = 2000 + (index * 30); // Exactly 2 seconds per block + spread delay
+                    
+                    this.scene.time.delayedCall(blockDestructionDelay, () => {
+                        if (blockToMelt && blockToMelt.isActive) {
+                            // Melter bombs can destroy ANY block type after melting completes
+                            // Including Strong and Eternal blocks if they were the target type
+                            this.destroyIceBlock(blockToMelt);
+                        }
+                    });
+                }
+            });
+        });
+        
+        // Play melting sound if available
+        if (this.scene.audioManager && typeof this.scene.audioManager.playSound === 'function') {
+            this.scene.audioManager.playSound('melt', { volume: 0.7 }); // Slightly louder
+        } else {
+            // Try direct sound playback if AudioManager isn't available
+            try {
+                this.scene.sound.play('melt', { volume: 0.7 });
+            } catch (e) {
+                // Fallback to a different sound if melt sound not available
+                try {
+                    // Instead of explosion, use a more melting-like sound if available
+                    this.scene.sound.play('splash', { volume: 0.6 });
+                } catch (e2) {
+                    console.log("[BombUtils.handleMelterBomb] Sound not available:", e2);
+                }
+            }
+        }
+        
+        // Add subtle camera effect instead of shake
+        if (this.scene.cameras && this.scene.cameras.main) {
+            // Use a gentle flash instead of shake
+            this.scene.cameras.main.flash(300, 0, 204, 153, 0.3); // Subtle teal flash
+        }
+        
+        // After the melting effect is applied and delays set, ensure we check game state
+        if (blocksToMelt.length === 0) {
+            // Check if this was the last bomb
+            this.checkLastBombResolution();
+        } else {
+            // Add a check after all melting effects complete (for the last bomb)
+            this.scene.time.delayedCall(2000, () => {
+                this.checkLastBombResolution();
+            });
+        }
+    }
+    
+    /**
+     * Check if this was the last bomb and notify GameStateManager to proceed with game over/victory checks
+     */
+    checkLastBombResolution() {
+        // Check if we have a GameStateManager
+        if (this.scene && this.scene.bombLauncher && this.scene.gameStateManager) {
+            const anyBombsAvailable = this.scene.isAnyBombAvailable ? this.scene.isAnyBombAvailable() : false;
+            
+            if (!anyBombsAvailable && this.scene.gameStateManager.waitingForLastBomb) {
+                console.log("[BombUtils.checkLastBombResolution] Last bomb effect complete, notifying GameStateManager");
+                
+                // Small delay to allow visual effects to finish
+                this.scene.time.delayedCall(500, () => {
+                    // Force check for level completion/game over now that last bomb has resolved
+                    if (this.scene.checkLevelCompletion) {
+                        this.scene.checkLevelCompletion();
+                    } else if (this.scene.gameStateManager.checkGameOver) {
+                        this.scene.gameStateManager.checkGameOver();
+                    }
+                });
+            }
+        }
+    }
+    
+    // Create visual paths connecting the blocks being melted
+    createMeltPathEffects(sourceX, sourceY, blocksToMelt) {
+        if (!this.scene || blocksToMelt.length <= 1) return;
+        
+        // Create a fading path between source point and each block
+        blocksToMelt.forEach((block, index) => {
+            if (index === 0) return; // Skip the first block (it's the impact block)
+            
+            // Calculate direction from source to block
+            const dirX = block.x - sourceX;
+            const dirY = block.y - sourceY;
+            const distance = Math.sqrt(dirX * dirX + dirY * dirY);
+            
+            // Only create paths for reasonably distant blocks
+            if (distance < 40) return;
+            
+            // Create a trail of particles along the path
+            const particles = this.scene.add.particles('particle');
+            particles.setDepth(4); // Below blocks
+            
+            // Number of points along the path
+            const numPoints = Math.min(Math.floor(distance / 20), 10);
+            const pathDelay = index * 75; // Match the block melting delay
+            
+            this.scene.time.delayedCall(pathDelay, () => {
+                // Emit particles along the path
+                for (let i = 0; i < numPoints; i++) {
+                    const t = i / (numPoints - 1); // 0 to 1
+                    const pointX = sourceX + (dirX * t);
+                    const pointY = sourceY + (dirY * t);
+                    
+                    // Create small melt particle burst at this point
+                    const emitter = particles.createEmitter({
+                        x: pointX,
+                        y: pointY,
+                        speed: { min: 10, max: 30 },
+                        scale: { start: 0.3, end: 0 },
+                        alpha: { start: 0.7, end: 0 },
+                        lifespan: 700,
+                        blendMode: 'ADD',
+                        tint: 0x00CC99,
+                        quantity: 2
+                    });
+                    
+                    // Small burst at each point with progressive delay
+                    const pointDelay = i * 50;
+                    this.scene.time.delayedCall(pointDelay, () => {
+                        emitter.explode(3, pointX, pointY);
+                    });
+                }
+                
+                // Clean up the particles
+                this.scene.time.delayedCall(1500, () => {
+                    particles.destroy();
+                });
+            });
+        });
+    }
+    
+    // Create melting effect visual at impact point
+    createMeltImpactEffect(x, y) {
+        if (!this.scene) return;
+        
+        // Create more obvious melting splash effect (larger and more opaque)
+        const splash = this.scene.add.circle(x, y, 80, 0x00CC99, 0.8);
+        splash.setDepth(6);
+        
+        // Add a pulse effect for emphasis
+        this.scene.tweens.add({
+            targets: splash,
+            scale: 1.2,
+            duration: 200,
+            yoyo: true,
+            repeat: 1,
+            ease: 'Sine.easeInOut',
+            onComplete: () => {
+                // Then fade out
+                this.scene.tweens.add({
+                    targets: splash,
+                    alpha: 0,
+                    scale: 3,
+                    duration: 1000,
+                    ease: 'Power2',
+                    onComplete: () => {
+                        splash.destroy();
+                    }
+                });
+            }
+        });
+        
+        // Create a second inner splash for layered effect
+        const innerSplash = this.scene.add.circle(x, y, 40, 0x00FFCC, 0.9);
+        innerSplash.setDepth(7);
+        this.scene.tweens.add({
+            targets: innerSplash,
+            scale: 0.5,
+            duration: 300,
+            yoyo: true,
+            repeat: 1,
+            ease: 'Sine.easeInOut',
+            onComplete: () => {
+                this.scene.tweens.add({
+                    targets: innerSplash,
+                    alpha: 0,
+                    scale: 2,
+                    duration: 800,
+                    ease: 'Power2',
+                    onComplete: () => {
+                        innerSplash.destroy();
+                    }
+                });
+            }
+        });
+        
+        // Add more particles for enhanced melting liquid effect
+        const particles = this.scene.add.particles('particle');
+        particles.setDepth(6);
+        
+        const emitter = particles.createEmitter({
+            x: x,
+            y: y,
+            speed: { min: 50, max: 120 }, // Faster particles
+            scale: { start: 1.2, end: 0 }, // Larger particles
+            alpha: { start: 0.9, end: 0 }, // More visible
+            lifespan: 1200, // Longer lifetime
+            blendMode: 'ADD',
+            tint: [0x00CC99, 0x00FFCC, 0x66FFCC], // More varied teal/mint colors
+            angle: { min: 0, max: 360 },
+            quantity: 25
+        });
+        
+        // Emit particles in two bursts for more impact
+        emitter.explode(40, x, y);
+        this.scene.time.delayedCall(150, () => {
+            emitter.explode(20, x, y);
+        });
+        
+        // Clean up particles after they're finished
+        this.scene.time.delayedCall(1300, () => {
+            particles.destroy();
+        });
+    }
+    
+    // Create melting effect on a specific block
+    createMeltingEffect(block) {
+        if (!block || !block.scene || !this.scene) return;
+        
+        // Track original block position and size
+        const blockX = block.x;
+        const blockY = block.y;
+        const blockWidth = block.width;
+        const blockHeight = block.height;
+        
+        // Store original block type to restore it for display purposes during melting
+        const originalBlockType = block.blockType;
+        
+        // Create more visible marker for melting blocks
+        // const meltMarker = this.scene.add.text(blockX, blockY - blockHeight/2 - 15, "MELTING", {
+        //     fontFamily: 'Arial',
+        //     fontSize: '12px',
+        //     color: '#00FFCC',
+        //     stroke: '#000000',
+        //     strokeThickness: 2
+        // }).setOrigin(0.5).setDepth(20);
+        
+        // Add countdown text for visual feedback
+        // const countdownText = this.scene.add.text(blockX, blockY, "3", {
+        //     fontFamily: 'Arial',
+        //     fontSize: '24px',
+        //     color: '#FFFFFF',
+        //     stroke: '#000000',
+        //     strokeThickness: 3
+        // }).setOrigin(0.5).setDepth(20);
+        
+        // Create dripping particle effect
+        const particles = this.scene.add.particles('particle');
+        particles.setDepth(5); // Below block depth
+        
+        // Add glowing outline to show block is melting
+        const glowOutline = this.scene.add.rectangle(
+            blockX, blockY,
+            blockWidth * 1.2, blockHeight * 1.2,
+            0x00FFCC, 0.6
+        );
+        glowOutline.setDepth(block.depth - 0.1); // Behind the block
+        
+        // Pulse the glow throughout the 3 second duration
+        this.scene.tweens.add({
+            targets: glowOutline,
+            alpha: { from: 0.6, to: 0.9 },
+            scale: { from: 1.0, to: 1.2 },
+            duration: 500, // Adjusted pulse for 2s total (2s / 4 repeats = 500ms)
+            yoyo: true,
+            repeat: 3, // Repeat for the full 2 seconds (4 * 500ms = 2000ms)
+            ease: 'Sine.easeInOut'
+        });
+        
+        // Enhanced dripping emitter - more particles that flow downward
+        const drippingEmitter = particles.createEmitter({
+            x: {min: blockX - blockWidth/2, max: blockX + blockWidth/2},
+            y: {min: blockY - blockHeight/2, max: blockY + blockHeight/2},
+            speedY: { min: 30, max: 80 }, // Faster drip downward
+            speedX: { min: -10, max: 10 },  // More sideways movement for dynamic effect
+            scale: { start: 0.4, end: 0 }, // Larger particles
+            alpha: { start: 0.9, end: 0 }, // More visible
+            lifespan: 1500, // Adjusted lifetime for 2-second effect
+            frequency: 40, // Emit more frequently (every 40ms)
+            blendMode: 'ADD',
+            tint: [0x00CC99, 0x00FFCC, 0x66FFCC, 0x00FFAA] // More varied teal/mint colors
+        });
+        
+        // Add a "puddle" effect at the bottom
+        const puddleY = blockY + blockHeight/2 + 10;
+        const puddleEmitter = particles.createEmitter({
+            x: {min: blockX - blockWidth/2, max: blockX + blockWidth/2},
+            y: puddleY,
+            speedY: { min: -5, max: 5 },
+            speedX: { min: -20, max: 20 }, // Spread horizontally 
+            scale: { start: 0.3, end: 0 },
+            alpha: { start: 0.8, end: 0 },
+            lifespan: 1500,
+            frequency: 60,
+            blendMode: 'ADD',
+            tint: [0x00CC99, 0x00FFCC]
+        });
+        
+        // Start dripping animations
+        drippingEmitter.start();
+        puddleEmitter.start();
+        
+        // Add a melting visual over the block (more visible now)
+        const meltOverlay = this.scene.add.rectangle(
+            blockX, blockY, 
+            blockWidth * 1.1, blockHeight * 1.1, 
+            0x00CC99, 0.5 // More opaque
+        );
+        meltOverlay.setDepth(block.depth + 0.1); // Just above the block
+        
+        // Add melting animation to the block - now 2 seconds
+        this.scene.tweens.add({
+            targets: [block, meltOverlay],
+            alpha: 0.2,  // Fade as it melts
+            scaleY: 0.15, // Squish vertically more dramatically
+            scaleX: 1.3, // Spread horizontally more
+            y: blockY + blockHeight/2 + 5, // Move down slightly as it melts
+            duration: 2000, // Exactly 2 seconds to melt
+            ease: 'Power2',
+            onComplete: () => {
+                // Stop emitting but let existing particles finish
+                drippingEmitter.stop();
+                puddleEmitter.stop();
+                
+                // Clean up melting visuals
+                meltOverlay.destroy();
+                glowOutline.destroy();
+                // meltMarker.destroy(); // Already removed
+                // countdownText.destroy(); // Already removed
+                
+                // Particles will be cleaned up after block destruction
+                this.scene.time.delayedCall(1500, () => { // Adjusted delay for particle cleanup
+                    particles.destroy();
+                });
             }
         });
     }

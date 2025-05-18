@@ -68,7 +68,7 @@ The 10 "girl bombs" represent the 10 frozen chibi girls. Each bomb type is unloc
 | **Ricochet Girl**   | Mermaid        | Bounces off surfaces, hitting blocks from various angles.                       | Navigate obstacles (Strong/Eternal) to reach hidden blocks.                       | Triggers Dynamite; damages Eternal/Strong (1 hit).                                     |
 | **Shatterer Girl**  | Astronaut      | Powerful impact, breaks toughest blocks.                                        | Essential for Eternal/Strong blocks behind obstacles.                            | Destroys Eternal/Strong in 1 hit; triggers Dynamite.                                   |
 | **Cluster Girl**    | Ninja          | Disperses smaller bombs upon explosion, targeting nearby blocks.                | Cover wide areas, trigger Dynamite for chains.                                   | Triggers Dynamite; damages Eternal/Strong (1 hit per mini-bomb).                       |
-| **Melter Girl**     | Baker          | Releases substance that melts blocks over time, even after impact.              | Deal with large or reinforced blocks (Eternal) behind obstacles.                 | Triggers Dynamite; damages Eternal/Strong (1 hit over time).                           |
+| **Melter Girl**     | Baker          | Releases substance that melts blocks over time, after impact, it will melt 30 of the same type blocks that it first collides.| Deal with large or reinforced blocks (Eternal) behind obstacles.| Triggers Dynamite; destroy Eternal/Strong in 1 hit over time.                           |
 | **Driller Girl**    | Sorceress      | Drills 30 blocks deep, remains as sticky bomb, explodes when triggered by other explosions. | Set up chain reactions in deep clusters, especially behind Eternal blocks.       | Drills through any block; sticks, triggers Dynamite; damages Eternal/Strong (1 hit when exploded). |
 | **Flying Girl**     | Vampire        | Floats slowly; players control with WASD (PC) or joystick (mobile), shoot rockets at cursor (or tap target). Rockets explode on impact. Lasts 15 seconds, then fizzles. | Precise targeting, especially Dynamite. Not used in level designs per requirements. | Rockets trigger Dynamite; damage Eternal/Strong (1 hit per rocket).                    |
 
@@ -141,8 +141,8 @@ The 10 "girl bombs" represent the 10 frozen chibi girls. Each bomb type is unloc
   - **Levels 21–30**: Small blocks, more Eternal and Dynamite; 3–5 shots; add Melter, Driller to set up Sticky/Driller bombs for triggered explosions and clear large areas behind obstacles (Eternal).
 - **Star System**:
   - **3 Stars**: 100% reveal.
-  - **2 Stars**: ≥90% reveal.
-  - **1 Star**: ≥80% reveal (minimum to pass).
+  - **2 Stars**: ≥92% reveal.
+  - **1 Star**: ≥85% reveal (minimum to pass).
 - **Level Design**: Each level specifies block configuration, bomb availability (based on unlocks), layout, and strategic notes for 3 stars. Bomb types are restricted until unlocked, focusing on cluster destruction (1–10), Dynamite accuracy and Ricochet (11–20), and Sticky/Driller setups for Eternal blocks (21–30). Congratulatory messages trigger for high-impact shots (≥30% reveal).
 
 # 6.1. Detailed Level Design for Levels 1–30

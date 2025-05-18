@@ -73,11 +73,17 @@ const config = {
         willReadFrequently: true // Add this option for better performance with frequent pixel operations
     },
     scene: [
+        TitleScene,
         BootScene,
         MainMenuScene,
         LoadingScene,
+        StoryMapScene,
         GameScene,
-        UIScene
+        UIScene,
+        CGScene,
+        InitialStoryCGScene,
+        HCGScene,
+        AlbumScene
     ],
     // Disable right-click context menu on canvas
     disableContextMenu: true

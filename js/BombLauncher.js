@@ -16,13 +16,19 @@ class BombLauncher {
         this.trajectoryPoints = [];  // Points for trajectory prediction
         this.isAiming = false; // Tracks if the user is currently aiming
         this.isLaunching = false; // Flag to indicate a launch is in progress
+        this.aimingBombRotationAngle = 0; // For visual spin during aiming
         
         // Bow and aiming related properties from GameScene
-        this.BOW_X = 300; 
+        this.BOW_X = 280; 
         this.BOW_Y = 540; 
+        this.GRIP_GAP = 20; // Increased from 10 to 20
         this.MAX_DRAG_DISTANCE = 200;
         this.SHOT_POWER = 0.0013; // Reduced to 1% of original value (was 0.13)
-        this.bow = null; // This will hold the bow image
+        // this.bow = null; // This will hold the bow image - REMOVED
+        this.upperBowPart = null;
+        this.lowerBowPart = null;
+        this.bowPartHeight = 30; // Placeholder: approximate height of one bow part image (adjust!)
+        this.bowRotationFactor = 0.001; // How much bow parts rotate per unit of drag distance
         
         // Bomb state tracking
         this.bombState = {
@@ -30,7 +36,8 @@ class BombLauncher {
             lastBombFired: 0,
             lastResetTime: 0,
             pendingReset: null,
-            bombCreationPending: false // Flag to prevent multiple bomb creations
+            bombCreationPending: false, // Flag to prevent multiple bomb creations
+            creationTimeoutId: null
         };
         
         // Constants from the scene are now defined above
@@ -69,7 +76,7 @@ class BombLauncher {
         for (let i = 0; i < 70; i++) {
             // Create a small circle graphic instead of a sprite
             const dot = this.scene.add.circle(-100, -100, 3, 0xffffff); // Default white, radius 3
-            dot.setDepth(500); // Use a much higher depth
+            dot.setDepth(this.scene.UI_DEPTH + 1000); // Ensure high depth for debugging
             dot.setVisible(false);
             dot.setActive(false);
             this.trajectoryDotGroup.add(dot); // Add it to the group
@@ -131,20 +138,34 @@ class BombLauncher {
         try {
             // Ensure aiming state is reset when creating a new bomb
             this.setAiming(false);
+            this.aimingBombRotationAngle = 0; // Reset visual rotation
 
             // Check if bomb creation is already pending
             if (this.bombState.bombCreationPending) {
-                console.log("Bomb creation already pending, skipping request");
+                console.log("[BombLauncher.createBomb] Bomb creation already pending, skipping request");
+                
+                // Set a timeout to clear the pending flag in case it gets stuck
+                if (!this.bombState.creationTimeoutId) {
+                    this.bombState.creationTimeoutId = setTimeout(() => {
+                        console.log("[BombLauncher.createBomb] Clearing stuck pending flag after timeout");
+                        this.bombState.bombCreationPending = false;
+                        this.bombState.creationTimeoutId = null;
+                    }, 2000); // 2 second timeout
+                }
                 return null;
             }
             
-            console.log(`Creating bomb of type: ${bombType}`);
+            console.log(`[BombLauncher.createBomb] Creating bomb of type: ${bombType}`);
             
             // Set the pending flag
             this.bombState.bombCreationPending = true;
             
             // Clean up existing bomb and visuals
-            this.cleanupExistingBomb();
+            if (this.isAiming) {
+                console.log("[BombLauncher.createBomb] Skipping cleanupExistingBomb because currently aiming.");
+            } else {
+                this.cleanupExistingBomb();
+            }
             this.clearVisuals();
             
             // Make sure we're using a valid bomb type
@@ -158,6 +179,7 @@ class BombLauncher {
             try {
                 // Create the bomb as a matter physics object
                 this.bomb = this.scene.matter.add.image(x, y, validBombType);
+                this.bomb.angle = 0; // Ensure initial angle is 0
                 
                 // Configure bomb physics properties
                 this.bomb.setCircle(30);
@@ -168,6 +190,8 @@ class BombLauncher {
                 
                 // Add bomb type for reference
                 this.bomb.bombType = validBombType;
+                this.bomb.isStatic = true; // Mark as static since it's not a physics object
+                this.bomb.angle = 0; // Ensure initial angle is 0 for sprite fallback too
                 
                 // Reset bomb state
                 this.bombState.active = false;
@@ -176,13 +200,23 @@ class BombLauncher {
                 // Create initial elastic line (now bowstring)
                 this.updateBowstring();
                 
-                console.log(`Successfully created bomb of type ${validBombType} at ${x},${y}`);
+                console.log(`[BombLauncher.createBomb] Successfully created bomb of type ${validBombType} at ${x},${y}`);
                 
                 // Update the scene's bomb reference for backwards compatibility
                 this.scene.bomb = this.bomb;
                 
+                // Ensure bomb is visible with a second check
+                if (this.bomb) {
+                    this.bomb.setVisible(true);
+                    this.bomb.setAlpha(1);
+                }
+                
                 // Clear the pending flag
                 this.bombState.bombCreationPending = false;
+                if (this.bombState.creationTimeoutId) {
+                    clearTimeout(this.bombState.creationTimeoutId);
+                    this.bombState.creationTimeoutId = null;
+                }
                 
                 // Create elastic line visual (now bowstring)
                 this.updateBowstring();
@@ -201,6 +235,7 @@ class BombLauncher {
                 this.bomb.setDisplaySize(60, 60);
                 this.bomb.bombType = validBombType;
                 this.bomb.isStatic = true; // Mark as static since it's not a physics object
+                this.bomb.angle = 0; // Ensure initial angle is 0 for sprite fallback too
                 
                 // Update the scene's bomb reference
                 this.scene.bomb = this.bomb;
@@ -240,7 +275,9 @@ class BombLauncher {
             STICKY: 'sticky_bomb',
             SHATTERER: 'shatterer_bomb',
             DRILLER: 'driller_bomb',
-            RICOCHET: 'ricochet_bomb'
+            RICOCHET: 'ricochet_bomb',
+            SHRAPNEL: 'shrapnel_bomb',
+            MELTER: 'melter_bomb'
         };
         
         // Check if this is a short name (e.g. 'blast' vs 'blast_bomb')
@@ -251,7 +288,9 @@ class BombLauncher {
             'sticky': BOMB_TYPES.STICKY || 'sticky_bomb',
             'shatterer': BOMB_TYPES.SHATTERER || 'shatterer_bomb',
             'driller': BOMB_TYPES.DRILLER || 'driller_bomb',
-            'ricochet': BOMB_TYPES.RICOCHET || 'ricochet_bomb'
+            'ricochet': BOMB_TYPES.RICOCHET || 'ricochet_bomb',
+            'shrapnel': BOMB_TYPES.SHRAPNEL || 'shrapnel_bomb',
+            'melter': BOMB_TYPES.MELTER || 'melter_bomb'
         };
         
         // If we have a short name, use the full name
@@ -273,9 +312,15 @@ class BombLauncher {
      * Clean up any existing bomb object
      */
     cleanupExistingBomb() {
+        // Don't cleanup if we're in the middle of aiming, that would cause the bomb to disappear
+        if (this.isAiming) {
+            console.log("[BombLauncher.cleanupExistingBomb] Skipping cleanup during aiming to prevent bomb disappearance");
+            return;
+        }
+        
         if (this.bomb) {
             if (this.debugMode) {
-                console.log("Cleaning up existing bomb");
+                console.log("[BombLauncher.cleanupExistingBomb] Cleaning up existing bomb");
             }
             
             // Clean up any countdown timers for ricochet bombs
@@ -299,25 +344,29 @@ class BombLauncher {
      * Create the elastic slingshot line
      */
     updateBowstring(bombX, bombY) {
-        if (!this.bow) return; // Don't draw if bow doesn't exist
+        if (!this.upperBowPart || !this.upperBowPart.scene || !this.lowerBowPart || !this.lowerBowPart.scene) return; // Don't draw if bow parts don't exist or scene is invalid
 
         if (!this.elasticLine) {
             this.elasticLine = this.scene.add.graphics();
-            this.elasticLine.setDepth(11); // Above bow
+            this.elasticLine.setDepth(11); // Above bow (bow parts at 10)
         }
         this.elasticLine.clear();
         this.elasticLine.lineStyle(2, 0xFFFFFF, 0.8); // White, slightly transparent
         this.elasticLine.beginPath();
 
+        // Get the world coordinates of the bow tips
+        const upperTip = this.upperBowPart.getTopCenter(); 
+        const lowerTip = this.lowerBowPart.getBottomCenter();
+
         if (this.isAiming && bombX !== undefined && bombY !== undefined) {
             // Draw pulled bowstring
-            this.elasticLine.moveTo(this.BOW_X, this.BOW_Y - 40); // Top of bow
+            this.elasticLine.moveTo(upperTip.x, upperTip.y); // Top tip of upper bow part
             this.elasticLine.lineTo(bombX, bombY); // Bomb position
-            this.elasticLine.lineTo(this.BOW_X, this.BOW_Y + 40); // Bottom of bow
+            this.elasticLine.lineTo(lowerTip.x, lowerTip.y); // Bottom tip of lower bow part
         } else {
             // Draw default bowstring (a straight line when not pulled)
-            this.elasticLine.moveTo(this.BOW_X, this.BOW_Y - 40); // Top of bow
-            this.elasticLine.lineTo(this.BOW_X, this.BOW_Y + 40); // Bottom of bow
+            this.elasticLine.moveTo(upperTip.x, upperTip.y); // Top tip of upper bow part
+            this.elasticLine.lineTo(lowerTip.x, lowerTip.y); // Bottom tip of lower bow part
         }
         this.elasticLine.stroke();
     }
@@ -325,50 +374,28 @@ class BombLauncher {
     /**
      * Draw trajectory prediction dots
      */
-    createTrajectoryDots(startX, startY, velocityX, velocityY) {
-        // Clean up existing graphics - REMOVED, clearVisuals handles this properly
-        // if (this.trajectoryGraphics && this.trajectoryGraphics.scene) {
-        //     this.trajectoryGraphics.clear();
-        // } else {
-        // Ensure trajectoryGraphics is initialized if it was somehow cleared elsewhere - Handled in constructor
-        //     this.trajectoryGraphics = this.scene.add.graphics();
-        //     this.trajectoryGraphics.setDepth(15);
-        // }
-        
-        // Ensure the group is visible before drawing
+    createTrajectoryDots(startX, startY, velocityX, velocityY, visualLineLength) {
         if (this.trajectoryDotGroup) {
             this.trajectoryDotGroup.setVisible(true);
         }
         
-        if (this.debugMode) {
-            console.log("Drawing trajectory from:", startX, startY, "with velocity:", velocityX, velocityY);
-            this.updateDebugText(`Drawing trajectory from ${startX.toFixed(2)},${startY.toFixed(2)}`);
-        }
-        
         try {
             // Calculate trajectory points using the refined method
-            this.calculateTrajectoryPoints(startX, startY, velocityX, velocityY);
+            this.calculateTrajectoryPoints(startX, startY, velocityX, velocityY, visualLineLength);
             
             // Draw dotted line connecting trajectory points
             if (this.trajectoryPoints.length >= 2) {
-                const skipFactor = Math.ceil(this.trajectoryPoints.length / 60); // Draw ~60 dots
-                if (this.debugMode) console.log(`[Trajectory] Attempting to draw ${Math.ceil(this.trajectoryPoints.length / skipFactor)} dots using sprite group.`);
-                
                 // Ensure the dot group exists
                 if (!this.trajectoryDotGroup) {
-                     console.error("[Trajectory] trajectoryDotGroup is missing OR INVALID prior to re-initialization attempt.");
                      if (!this.scene || !this.scene.add) {
-                         console.error(`[Trajectory] CRITICAL: Scene invalid during re-initialization! Scene exists: ${!!this.scene}, Scene.add exists: ${!!(this.scene && this.scene.add)}`);
                          return; // Cannot re-initialize without a valid scene
                      }
-                     if (this.debugMode) console.log("[Trajectory] Attempting to re-initialize trajectoryDotGroup...");
-                     // Re-initialize the group (same as constructor)
                      try {
                          this.trajectoryDotGroup = this.scene.add.group(); // Create an empty group
                          for (let i = 0; i < 70; i++) {
                              // Create a small circle graphic instead of a sprite
                              const dot = this.scene.add.circle(-100, -100, 3, 0xffffff); // Default white, radius 3
-                             dot.setDepth(500); // Use a much higher depth
+                             dot.setDepth(this.scene.UI_DEPTH + 1000); // Ensure high depth for debugging
                              dot.setVisible(false);
                              dot.setActive(false);
                              this.trajectoryDotGroup.add(dot); // Add it to the group
@@ -377,62 +404,37 @@ class BombLauncher {
                          // Explicitly add the re-initialized group itself to the scene
                          this.scene.add.existing(this.trajectoryDotGroup);
                      } catch (reinitError) {
-                         console.error("[Trajectory] CRITICAL: Error during trajectoryDotGroup re-initialization:", reinitError);
                          this.trajectoryDotGroup = null; // Ensure it's null if creation failed
                      }
-
-                     if (this.debugMode) {
-                         console.log(`[Trajectory] After re-initialization attempt, trajectoryDotGroup. Exists: ${!!this.trajectoryDotGroup}, Active: ${this.trajectoryDotGroup ? this.trajectoryDotGroup.active : 'N/A'}, Length: ${this.trajectoryDotGroup ? this.trajectoryDotGroup.getLength() : 'N/A'}`);
-                     }
-                    // If it was missing, it implies something went wrong, maybe return to avoid errors this frame
                     if (!this.trajectoryDotGroup) {
-                        console.error("[Trajectory] CRITICAL: Failed to re-initialize trajectoryDotGroup!");
                         return; 
                     }
                 }
 
                 // Get all children from the group
                 const dots = this.trajectoryDotGroup.getChildren();
-                if (this.debugMode) {
-                    console.log(`[Trajectory] Group has ${dots.length} children. Is group active: ${this.trajectoryDotGroup.active}`);
-                    // Check the scene of the first dot to ensure it's valid
-                    if (dots.length > 0 && dots[0]) {
-                        console.log(`[Trajectory] First dot scene: ${dots[0].scene ? 'valid' : 'INVALID'}`);
-                    } else if (dots.length === 0) {
-                        console.warn("[Trajectory] No dots in group during drawing attempt!");
-                    }
-                }
 
                 // Hide all dots first
                 dots.forEach(dot => dot.setVisible(false).setActive(false));
 
                 let dotsDrawn = 0;
+                const skipFactor = Math.ceil(this.trajectoryPoints.length / 60); // MOVED skipFactor here
                 for (let i = 0; i < this.trajectoryPoints.length && dotsDrawn < dots.length; i += skipFactor) {
-                    const dot = dots[dotsDrawn]; // Now it's a circle, not a sprite
+                    const dot = dots[dotsDrawn]; 
                     const point = this.trajectoryPoints[i];
-                    const alpha = 1.0 - (i / this.trajectoryPoints.length * 0.6); 
-                    const radius = 2 + (1.0 - (i / this.trajectoryPoints.length)) * 3; // Dots get smaller, min radius 2, max 5
 
-                    if (dot && dot.scene) { // Ensure circle is still valid
+                    if (dot && dot.scene) { 
                         dot.setPosition(point.x, point.y);
-                        dot.setAlpha(alpha);
-                        // For circles, we set radius and fill color
-                        dot.setRadius(radius);
-                        dot.setFillStyle(0x00ff00, alpha); // Green trajectory dots
+                        dot.setAlpha(1.0);
+                        dot.setRadius(5);
+                        dot.setFillStyle(0xFF00FF, 1.0); // Bright magenta
                         dot.setActive(true);
                         dot.setVisible(true);
                         dotsDrawn++;
-                    } else {
-                        if (this.debugMode) console.warn("[Trajectory] Invalid dot/sprite in group during drawing loop.");
                     }
-                }
-                
-                if (this.debugMode) {
-                    console.log(`[Trajectory] Drew ${dotsDrawn} dots from sprite group.`);
                 }
             }
         } catch (error) {
-            console.error("[Trajectory] Error drawing sprite-based trajectory:", error);
             this.updateDebugText(`Trajectory Error: ${error.message}`);
         }
     }
@@ -445,29 +447,26 @@ class BombLauncher {
      * @param {number} velocityY - The initial Y velocity component.
      * @return {Array<object>} An array of {x, y} points for the trajectory.
      */
-    calculateTrajectoryPoints(startX, startY, velocityX, velocityY) {
+    calculateTrajectoryPoints(startX, startY, velocityX, velocityY, visualLineLength) {
         this.trajectoryPoints = [];
-        const numPoints = 30; // Number of dots for the line
-        const lineLength = 800; // Fixed length for the trajectory line
-        const timeStep = 1; // Arbitrary step, used for segmenting the line
+        const numPoints = 30; // Number of dots for the line (can be adjusted)
+        // visualLineLength now determines how far the straight prediction line extends.
+        // If visualLineLength is small, the line will be short.
+        // Ensure visualLineLength is passed from createTrajectoryDots.
 
-        if (this.debugMode) {
-            // console.log(`[BombLauncher.calculateTrajectoryPoints] Straight Line Mode. Start: (${startX.toFixed(2)}, ${startY.toFixed(2)}), Vel: (${velocityX.toFixed(2)}, ${velocityY.toFixed(2)})`);
+        if (velocityX === 0 && velocityY === 0) { // No velocity, no line to draw beyond the start point
+            this.trajectoryPoints.push({ x: startX, y: startY });
+            return this.trajectoryPoints;
         }
 
         const angle = Math.atan2(velocityY, velocityX);
 
         for (let i = 0; i < numPoints; i++) {
-            const distance = (i / numPoints) * lineLength;
-            const x = startX + distance * Math.cos(angle);
-            const y = startY + distance * Math.sin(angle);
+            // Distribute points along the visualLineLength
+            const currentSegmentDistance = (i / (numPoints -1)) * visualLineLength; // numPoints-1 for segments
+            const x = startX + currentSegmentDistance * Math.cos(angle);
+            const y = startY + currentSegmentDistance * Math.sin(angle);
             this.trajectoryPoints.push({ x: x, y: y });
-
-            // Optional: Stop if out of bounds, though less critical for a straight line visual
-            // if (x < 0 || x > this.scene.cameras.main.width || y < 0 || y > this.scene.cameras.main.height) {
-            //     if (this.debugMode) console.log("[BombLauncher.calculateTrajectoryPoints] Straight line point out of bounds, stopping.");
-            //     break;
-            // }
         }
         return this.trajectoryPoints;
     }
@@ -486,19 +485,38 @@ class BombLauncher {
      * @param {Phaser.Input.Pointer} pointer - The pointer (mouse/touch) position
      */
     updateBombPosition(pointer) {
-        if (!this.bomb || !pointer) return;
+        if (!pointer) return;
         
         try {
             // Ensure pointer has valid x and y coordinates
             if (pointer.x === undefined || pointer.y === undefined) {
-                console.warn("Invalid pointer coordinates in updateBombPosition");
+                console.warn("[BombLauncher.updateBombPosition] Invalid pointer coordinates");
                 return;
+            }
+            
+            // Check if we have a valid bomb object
+            if (!this.bomb || !this.bomb.scene) {
+                console.warn("[BombLauncher.updateBombPosition] Bomb is missing, checking creation pending state");
+                
+                // Only attempt to recreate if not already in process
+                if (!this.bombState.bombCreationPending) {
+                    console.log("[BombLauncher.updateBombPosition] Attempting to recreate bomb");
+                    const bombType = this.scene.currentBombType || 'blast_bomb';
+                    this.createBomb(bombType);
+                }
+                return; // Exit regardless - either no bomb or creation in progress
             }
             
             // Use the drawTrajectoryFromPointer method for consistent handling
             this.drawTrajectoryFromPointer(pointer);
         } catch (error) {
-            console.error("Error in BombLauncher.updateBombPosition:", error);
+            console.error("[BombLauncher.updateBombPosition] Error:", error);
+            // On error, don't let the bomb disappear - try to recover
+            if (!this.bomb && !this.bombState.bombCreationPending) {
+                this.bombState.bombCreationPending = false; // Reset flag if it's stuck
+                const bombType = this.scene.currentBombType || 'blast_bomb';
+                this.createBomb(bombType);
+            }
         }
     }
 
@@ -510,7 +528,7 @@ class BombLauncher {
     calculateForce(pointer) {
         // Calculate direction from slingshot
         const dx = this.BOW_X - pointer.x;
-        const dy = this.BOW_Y - 30 - pointer.y; // -30 offset to align with visual bow center
+        const dy = this.BOW_Y - pointer.y; // Adjusted to match trajectory calculation
         
         // Scale by shot power 
         const forceX = dx * this.SHOT_POWER; // Removed extra 0.01 scaling for now
@@ -528,30 +546,71 @@ class BombLauncher {
             if (!pointer || pointer.x === undefined || pointer.y === undefined) {
                 return;
             }
+
+            // ADDED: Safety check to ensure bomb exists and is visible
+            if (!this.bomb || !this.bomb.scene) {
+                console.log("[BombLauncher.drawTrajectoryFromPointer] Bomb is missing during aiming, attempting to recreate");
+                const bombType = this.scene.currentBombType || 'blast_bomb';
+                this.createBomb(bombType);
+                if (!this.bomb) return; // Still no bomb? Exit.
+            }
             
             // Calculate angle and distance from slingshot
             const dx = this.BOW_X - pointer.x;
-            const dy = this.BOW_Y - 30 - pointer.y;
+            const dy = this.BOW_Y - pointer.y; // Adjusted to use BOW_Y directly, assuming it's the visual center of pull
             
-            // Limit distance by MAX_DRAG_DISTANCE
-            const distance = Math.min(
-                this.MAX_DRAG_DISTANCE,
-                Math.sqrt(dx * dx + dy * dy)
-            );
+            // Actual distance of the mouse drag from the bow's central Y point
+            const actualDragDistance = Math.sqrt(dx * dx + dy * dy);
             
-            // Calculate angle
+            // Clamp the actual drag distance for physics/rotation calculations to MAX_DRAG_DISTANCE
+            const clampedActualDragDistance = Math.min(this.MAX_DRAG_DISTANCE, actualDragDistance);
+            
+            // Calculate the exaggerated visual pull distance
+            const visualPullFactor = 1.4; // Changed from 1.2 to 1.4
+            const effectiveVisualPullDistance = clampedActualDragDistance * visualPullFactor;
+            
+            // Calculate angle of pull (remains the same)
             const angle = Math.atan2(dy, dx);
             
-            // Calculate bomb position
-            const bombX = this.BOW_X - distance * Math.cos(angle);
-            const bombY = (this.BOW_Y - 30) - distance * Math.sin(angle);
+            // Calculate bomb position based on the exaggerated visual pull distance
+            const bombX = this.BOW_X - effectiveVisualPullDistance * Math.cos(angle);
+            const bombY = this.BOW_Y - effectiveVisualPullDistance * Math.sin(angle);
             
-            // Update bomb position if it exists
-            if (this.bomb) {
-                this.bomb.setPosition(bombX, bombY);
+            // Update bomb position if it exists - MORE CAREFUL VALIDATION
+            if (this.bomb && this.bomb.scene) {
+                try {
+                    this.bomb.setPosition(bombX, bombY);
+                    // Add visual spin during aiming
+                    this.aimingBombRotationAngle += 5; // Adjust speed as needed
+                    this.bomb.angle = this.aimingBombRotationAngle;
+                    
+                    // ADDED: Ensure bomb remains visible
+                    if (!this.bomb.visible) {
+                        console.log("[BombLauncher.drawTrajectoryFromPointer] Bomb was invisible during aiming, making visible");
+                        this.bomb.setVisible(true);
+                    }
+                } catch (positionError) {
+                    console.error("[BombLauncher.drawTrajectoryFromPointer] Error updating bomb position:", positionError);
+                    // Don't let positioning errors break the whole aiming process
+                }
+            } else {
+                console.warn("[BombLauncher.drawTrajectoryFromPointer] Bomb disappeared during position update");
+                return; // Exit early, no point continuing without a bomb
             }
             
-            // Update elastic line
+            // --- Bow Part Rotation ---
+            if (this.upperBowPart && this.lowerBowPart && this.upperBowPart.scene && this.lowerBowPart.scene) {
+                const pullRatio = Math.min(1, clampedActualDragDistance / this.MAX_DRAG_DISTANCE); 
+                const maxRotationDegrees = 25; 
+                
+                const absoluteRotationAmount = maxRotationDegrees * pullRatio;
+
+                this.upperBowPart.angle = -absoluteRotationAmount; // Always CCW
+                this.lowerBowPart.angle = absoluteRotationAmount;  // Always CW
+            }
+            // --- End Bow Part Rotation ---
+
+            // Update elastic line (bowstring)
             this.updateBowstring(bombX, bombY);
             
             // Calculate velocity for trajectory based on the actual shot power
@@ -559,7 +618,8 @@ class BombLauncher {
             const effectiveForceY = dy * this.SHOT_POWER;
             
             // Create trajectory dots
-            this.createTrajectoryDots(bombX, bombY, effectiveForceX, effectiveForceY);
+            const visualLineLength = clampedActualDragDistance * 3; // Scale actual drag distance for visual length
+            this.createTrajectoryDots(bombX, bombY, effectiveForceX, effectiveForceY, visualLineLength);
             
             if (this.debugMode) {
                 this.updateDebugText(`Drawing at ${bombX.toFixed(2)},${bombY.toFixed(2)}`);
@@ -591,7 +651,9 @@ class BombLauncher {
             STICKY: 'sticky_bomb',
             SHATTERER: 'shatterer_bomb',
             DRILLER: 'driller_bomb',
-            RICOCHET: 'ricochet_bomb'
+            RICOCHET: 'ricochet_bomb',
+            SHRAPNEL: 'shrapnel_bomb',
+            MELTER: 'melter_bomb'
         };
 
         
@@ -604,7 +666,7 @@ class BombLauncher {
             
             // Calculate angle and distance from slingshot
             const dx = this.BOW_X - pointer.x;
-            const dy = this.BOW_Y - 30 - pointer.y;
+            const dy = this.BOW_Y - pointer.y;
             
             // Minimum drag distance required to fire (prevents accidental taps)
             const minDragDistance = 20;
@@ -665,36 +727,46 @@ class BombLauncher {
                 restitution: 0.9,
                 friction: 0.01,
                 density: 0.0003,
-                frictionAir: 0.001 // Default from GameScene, was 0.004, then 0.001
+                frictionAir: 0.0 // Set to 0 for zero-gravity, no air resistance test
             };
     
             switch(bombType) {
                 case BOMB_TYPES.PIERCER:
                     bombProperties.friction = 0.002;
-                    bombProperties.frictionAir = 0.0008; // Was 0.003 then 0.0008
+                    // bombProperties.frictionAir = 0.0008; // Keep at 0 for test
                     bombProperties.density = 0.0005;
                     break;
                 case BOMB_TYPES.CLUSTER:
                     bombProperties.density = 0.0002;
-                    bombProperties.frictionAir = 0.001; // Was 0.005 then 0.001
+                    // bombProperties.frictionAir = 0.001; // Keep at 0 for test
                     break;
                 case BOMB_TYPES.STICKY:
                     bombProperties.density = 0.0003;
-                    bombProperties.frictionAir = 0.001; // Was 0.004 then 0.001
+                    // bombProperties.frictionAir = 0.001; // Keep at 0 for test
                     break;
                 case BOMB_TYPES.SHATTERER:
                     bombProperties.density = 0.0004;
-                    bombProperties.frictionAir = 0.0009; // Was 0.0036 then 0.0009
+                    // bombProperties.frictionAir = 0.0009; // Keep at 0 for test
                     break;
                 case BOMB_TYPES.DRILLER:
                     bombProperties.density = 0.0004;
-                    bombProperties.frictionAir = 0.0008; // Was 0.003 then 0.0008
+                    // bombProperties.frictionAir = 0.0008; // Keep at 0 for test
                     break;
                 case BOMB_TYPES.RICOCHET:
                     bombProperties.restitution = 1.0;
                     bombProperties.friction = 0.001;
-                    bombProperties.frictionAir = 0.0005;
+                    // bombProperties.frictionAir = 0.0005; // Keep at 0 for test
                     bombProperties.density = 0.0003;
+                    break;
+                case BOMB_TYPES.MELTER:
+                    // Set specific properties for Melter bomb if any, otherwise it uses defaults.
+                    // Example: bombProperties.density = 0.0003;
+                    // The previous erroneous handler calls are removed.
+                    break;
+                default:
+                    // Default case for bombProperties switch.
+                    // If a bomb type isn't listed, it uses the initial bombProperties.
+                    // The previous erroneous handler calls and 'scene' usage are removed.
                     break;
             }
             
@@ -705,7 +777,7 @@ class BombLauncher {
             dynamicBomb.setDepth(12);
             dynamicBomb.setDisplaySize(60, 60);
             dynamicBomb.setFixedRotation(false);
-            dynamicBomb.setAngularVelocity(0.1);
+            // dynamicBomb.setAngularVelocity(0.1); // Temporarily commented out for testing
 
             this.bomb = dynamicBomb; // BombLauncher now tracks the dynamic bomb
             this.scene.bomb = dynamicBomb; // GameScene also tracks the new dynamic bomb
@@ -720,7 +792,7 @@ class BombLauncher {
                 // distance is calculated earlier in this function
                 // Ensure it's the drag distance used for force calculation
                 const dragDx = this.BOW_X - pointer.x;
-                const dragDy = this.BOW_Y - 30 - pointer.y;
+                const dragDy = this.BOW_Y - pointer.y;
                 const launchDistance = Math.sqrt(dragDx * dragDx + dragDy * dragDy);
                 this.bomb.launchPower = Math.min(launchDistance, this.MAX_DRAG_DISTANCE); // Store capped distance
                 if (this.debugMode) console.log(`[BombLauncher] Driller bomb launched with power (distance): ${this.bomb.launchPower}`);
@@ -730,25 +802,48 @@ class BombLauncher {
             this.bomb.onHitBlock = function(block, collisionManagerInstance) {
                 // 'this' refers to the bomb instance.
                 // collisionManagerInstance is the instance of CollisionManager.
-                const scene = collisionManagerInstance.scene;
+
+                const scene = collisionManagerInstance ? collisionManagerInstance.scene : null;
+
+                if (!scene) {
+                    console.error("[Bomb.onHitBlock] CRITICAL: 'scene' is not available from collisionManagerInstance. Aborting bomb effect.");
+                    if (this && typeof this.destroy === 'function' && this.scene) { // 'this' is the bomb GameObject
+                        this.hasExploded = true; // Mark as exploded to prevent other logic
+                        this.destroy();
+                    }
+                    return { processed: true, hasExploded: true, bombStuck: false }; // Abort
+                }
+
                 const bombUtils = scene.bombUtils;
-                const BOMB_TYPES = scene.BOMB_TYPES || {}; // Safeguard
+                if (!bombUtils) {
+                    console.error(`[Bomb.onHitBlock] CRITICAL: 'bombUtils' is not available on scene '${scene.constructor.name}'. Aborting bomb effect.`);
+                    if (this && typeof this.destroy === 'function' && this.scene) { // 'this' is the bomb GameObject
+                        this.hasExploded = true; // Mark as exploded
+                        this.destroy();
+                    }
+                    return { processed: true, hasExploded: true, bombStuck: false }; // Abort
+                }
+                
+                const BOMB_TYPES = scene.BOMB_TYPES || { // Safeguard: Ensure this local BOMB_TYPES includes MELTER
+                    BLAST: 'blast_bomb',
+                    PIERCER: 'piercer_bomb',
+                    CLUSTER: 'cluster_bomb',
+                    STICKY: 'sticky_bomb',
+                    SHATTERER: 'shatterer_bomb',
+                    DRILLER: 'driller_bomb',
+                    RICOCHET: 'ricochet_bomb',
+                    SHRAPNEL: 'shrapnel_bomb',
+                    MELTER: 'melter_bomb' 
+                };
 
                 let hasExploded = false;
                 let bombStuck = false;
                 let effectProcessedThisCall = false;
                 
-                // This bomb instance is the activeBomb in CollisionManager's context
                 const bombX = this.x;
                 const bombY = this.y;
                 const bombType = this.bombType;
-
-                // Logic adapted from CollisionManager._handleBombToBlockCollision
-                if (!bombUtils) {
-                    console.error("[Bomb.onHitBlock] scene.bombUtils is not defined!");
-                    this.hasExploded = true;
-                    return { processed: true, hasExploded: true, bombStuck: false };
-                }
+                const bombVelocity = this.body ? { x: this.body.velocity.x, y: this.body.velocity.y } : { x: 0, y: 0 };
 
                 switch (bombType) {
                     case BOMB_TYPES.BLAST:
@@ -764,31 +859,40 @@ class BombLauncher {
                         break;
                     case BOMB_TYPES.CLUSTER:
                         if (scene.debugMode) console.log("[Bomb.onHitBlock] Handling CLUSTER bomb.");
-                        bombUtils.handleClusterBomb(bombX, bombY);
+                        bombUtils.handleClusterBomb(bombX, bombY, bombVelocity);
                         hasExploded = true;
                         break;
                     case BOMB_TYPES.STICKY:
-                        this.isSticky = true; // Mark the bomb instance
+                        this.isSticky = true; 
                         if (scene.debugMode) console.log("[Bomb.onHitBlock] Handling STICKY bomb.");
                         if (typeof bombUtils.handleStickyBomb === 'function') {
-                            bombUtils.handleStickyBomb(bombX, bombY, block); // Pass block
+                            bombUtils.handleStickyBomb(bombX, bombY, block, this); // Pass bomb instance (this)
                         } else {
                             console.warn("[Bomb.onHitBlock] No handler for STICKY bomb! Defaulting to blast.");
                             bombUtils.handleBlastBomb(bombX, bombY);
                             hasExploded = true;
                         }
-                        bombStuck = true; // Sticky bombs "stick"
-                        hasExploded = false; // Sticky bombs don't explode on initial contact
+                        bombStuck = true; 
+                        hasExploded = false; 
                         break;
                     case BOMB_TYPES.SHATTERER:
                         if (scene.debugMode) console.log("[Bomb.onHitBlock] Handling SHATTERER bomb.");
                         bombUtils.handleShattererBomb(bombX, bombY);
                         hasExploded = true;
                         break;
+                    case BOMB_TYPES.SHRAPNEL:
+                        if (scene.debugMode) console.log("[Bomb.onHitBlock] Handling SHRAPNEL bomb.");
+                        if (typeof bombUtils.handleShrapnelBomb === 'function') {
+                            bombUtils.handleShrapnelBomb(bombX, bombY);
+                        } else {
+                            console.warn("[Bomb.onHitBlock] No handler for SHRAPNEL bomb! Defaulting to blast.");
+                            bombUtils.handleBlastBomb(bombX, bombY);
+                        }
+                        hasExploded = true;
+                        break;
                     case BOMB_TYPES.DRILLER:
-                        this.isDriller = true; // Mark the bomb instance
+                        this.isDriller = true; 
                         if (scene.debugMode) console.log("[Bomb.onHitBlock] Handling DRILLER bomb.");
-                        let drillerBombInstance = null;
                         let velocityX_drill = 0, velocityY_drill = 0;
                         if (this.body && this.body.velocity) {
                             velocityX_drill = this.body.velocity.x;
@@ -797,48 +901,49 @@ class BombLauncher {
                             this.storedVelocityY = velocityY_drill;
                         }
                         if (bombUtils && typeof bombUtils.handleDrillerBomb === 'function') {
-                            // Pass 'this' (the bomb instance) to handleDrillerBomb
-                            drillerBombInstance = bombUtils.handleDrillerBomb(this, bombX, bombY, block, velocityX_drill, velocityY_drill);
+                            bombUtils.handleDrillerBomb(this, bombX, bombY, block, velocityX_drill, velocityY_drill);
                         } else {
                             console.warn("[Bomb.onHitBlock] Critical: bombUtils.handleDrillerBomb not found! Defaulting to blast.");
                             bombUtils.handleBlastBomb(bombX, bombY);
                             hasExploded = true;
                         }
-                        // if (drillerBombInstance && scene.activeDrillerBombs && !scene.activeDrillerBombs.includes(drillerBombInstance)) {
-                        //     scene.activeDrillerBombs.push(drillerBombInstance); // This should be handled within handleDrillerBomb or by CollisionManager post-call
-                        // }
-                        bombStuck = true; // Driller bombs "stick" initially
-                        hasExploded = false; // Driller bombs don't explode on initial contact
+                        bombStuck = true; 
+                        hasExploded = false; 
                         break;
                     case BOMB_TYPES.RICOCHET:
-                        this.isRicochet = true; // Ensure ricochet status
+                        this.isRicochet = true; 
                         if (scene.debugMode) console.log("[Bomb.onHitBlock] Handling RICOCHET bomb contact with block. It should bounce.");
-                        // Physics engine handles the bounce.
-                        // Call CollisionManager's handleBouncyBlock for effects if needed by passing collisionManagerInstance
                         if (collisionManagerInstance && typeof collisionManagerInstance.handleBouncyBlock === 'function') {
                              collisionManagerInstance.handleBouncyBlock(block, this);
                         }
                         hasExploded = false;
                         bombStuck = false;
                         break;
+                    case BOMB_TYPES.MELTER: // ADDED MELTER CASE
+                        if (scene.debugMode) console.log("[Bomb.onHitBlock] Handling MELTER bomb.");
+                        if (typeof bombUtils.handleMelterBomb === 'function') {
+                            bombUtils.handleMelterBomb(bombX, bombY, block);
+                        } else {
+                            console.warn("[Bomb.onHitBlock] No handler for MELTER bomb! Defaulting to blast.");
+                            bombUtils.handleBlastBomb(bombX, bombY);
+                            hasExploded = true; 
+                        }
+                        hasExploded = false; 
+                        bombStuck = false;   
+                        break;
                     default:
                         if (scene.debugMode) console.log(`[Bomb.onHitBlock] Unknown bomb type: ${bombType}, using BLAST.`);
-                        bombUtils.handleBlastBomb(bombX, bombY);
+                        bombUtils.handleBlastBomb(bombX, bombY); // CORRECTED
                         hasExploded = true;
                         break;
                 }
                 effectProcessedThisCall = true;
                 
-                // Update the bomb's own hasExploded state based on the outcome
-                // Sticky and Driller bombs set their own this.hasExploded within their specific handlers in BombUtils if they actually explode later.
-                // For Ricochet, it's managed by its timer or boundary hits leading to explosion.
-                if (bombType !== BOMB_TYPES.STICKY && bombType !== BOMB_TYPES.DRILLER && bombType !== BOMB_TYPES.RICOCHET) {
+                if (bombType !== BOMB_TYPES.STICKY && bombType !== BOMB_TYPES.DRILLER && bombType !== BOMB_TYPES.RICOCHET && bombType !== BOMB_TYPES.MELTER) { // Ensure MELTER is excluded here too
                     this.hasExploded = hasExploded;
                 }
 
-                // NEW: If the bomb has exploded, clean it up here.
                 if (this.hasExploded) {
-                    // Ensure its own countdowns are cleared (e.g. if a ricochet exploded early due to this hit)
                     if (this.countdown) {
                         this.countdown.remove();
                         this.countdown = null;
@@ -847,7 +952,6 @@ class BombLauncher {
                         this.countdownText.destroy();
                         this.countdownText = null;
                     }
-                    // Clear trail if it exists (e.g. for ricochet bombs)
                     if (this.trailEmitter) {
                         this.trailEmitter.stop();
                         if (this.trailParticles && this.trailParticles.scene) {
@@ -857,17 +961,13 @@ class BombLauncher {
                         }
                     }
 
-                    if (this.scene) { // Check if bomb is still part of a scene
-                        const launcher = scene.bombLauncher; // Get reference to BombLauncher from the scene context of onHitBlock
-                        
-                        this.destroy(); // 'this' is the bomb instance
-                        
-                        // Notify BombLauncher that its current bomb is gone
+                    if (this.scene) { 
+                        const launcher = scene.bombLauncher; 
+                        this.destroy(); 
                         if (launcher && launcher.bomb === this) {
                             launcher.bomb = null;
-                            launcher.bombState.active = false; // Mark as inactive in launcher
+                            launcher.bombState.active = false; 
                         }
-                        // Also clear GameScene's direct reference if it was pointing to this bomb
                         if (scene.bomb === this){
                             scene.bomb = null;
                         }
@@ -990,6 +1090,7 @@ class BombLauncher {
             // Set flags based on bombType (consolidated)
             if (bombType === BOMB_TYPES.STICKY) this.bomb.isSticky = true;
             if (bombType === BOMB_TYPES.DRILLER) this.bomb.isDriller = true;
+            if (bombType === BOMB_TYPES.MELTER) this.bomb.isMelter = true; // Optional: add a flag if needed elsewhere
             // isRicochet is set above within its specific block
 
             
@@ -1093,6 +1194,9 @@ class BombLauncher {
                 // Update bomb state
                 this.bombState.active = false;
                 
+                // Check if this was the last bomb
+                this.checkLastBombResolution();
+
                 // Schedule a reset for the next bomb with a longer delay
                 this.scene.time.delayedCall(2000, () => {
                     if (this.scene.shotsRemaining > 0) {
@@ -1124,27 +1228,24 @@ class BombLauncher {
      */
     checkForStoppedBombs() {
         try {
-            // Log entry state
-            // if (this.debugMode && this.bomb) { // Commented out
-            //     const velocity = this.bomb.body?.velocity || {x: NaN, y: NaN};
-            //     console.log(`[CheckStop] Entry: Type=${this.bomb.bombType || 'unknown'}, Active=${this.bombState.active}, Exploded=${this.bomb.hasExploded}, Vel=(${velocity.x?.toFixed(2)}, ${velocity.y?.toFixed(2)})`);
-            // }
-
             // Skip if no bomb, bomb is not active, or bomb has been destroyed
             if (!this.bomb || !this.bombState.active || !this.bomb.scene) {
-                // if (this.debugMode) console.log(`[CheckStop] Skip: No bomb, inactive, or not in scene.`); // Commented out
                 return false;
             }
             
             // Safety check - if the bomb body is null or has been removed
             if (!this.bomb.body || this.bomb.hasExploded) {
-                // if (this.debugMode) console.log(`[CheckStop] Skip: No body or already exploded`); // Commented out
                 this.bombState.active = false;
+                
+                // Check if this was the last bomb
+                this.checkLastBombResolution();
+                
                 return false;
             }
             
             // Get the bomb type safely with proper fallbacks
             const bombType = this.bomb.bombType || this.scene.currentBombType || 'blast_bomb';
+            const bombVelocity = this.bomb.body && this.bomb.body.velocity ? { x: this.bomb.body.velocity.x, y: this.bomb.body.velocity.y } : { x: 0, y: 0 };
             
             // Get BOMB_TYPES safely from scene
             const BOMB_TYPES = this.scene.BOMB_TYPES || {
@@ -1225,8 +1326,8 @@ class BombLauncher {
                             if (this.scene.bombUtils) {
                                 switch(bombType) {
                                     case BOMB_TYPES.BLAST: case 'bomb': this.scene.bombUtils.handleBlastBomb(bombX, bombY); break;
-                                    case BOMB_TYPES.PIERCER: this.scene.bombUtils.handlePiercerBomb(bombX, bombY, {x: 0, y: 1}); break;
-                                    case BOMB_TYPES.CLUSTER: this.scene.bombUtils.handleClusterBomb(bombX, bombY); break;
+                                    case BOMB_TYPES.PIERCER: this.scene.bombUtils.handlePiercerBomb(bombX, bombY, {x: 0, y: 1}); break; // Stopped bombs lose velocity context for piercer
+                                    case BOMB_TYPES.CLUSTER: this.scene.bombUtils.handleClusterBomb(bombX, bombY, bombVelocity); break; // Pass original velocity
                                     case BOMB_TYPES.SHATTERER: this.scene.bombUtils.handleShattererBomb(bombX, bombY); break;
                                     default: this.scene.bombUtils.handleBlastBomb(bombX, bombY); break;
                                 }
@@ -1262,18 +1363,29 @@ class BombLauncher {
 
                     // If bombState became inactive by any of the above paths, schedule next bomb
                     if (!this.bombState.active) {
+                        // Check if this was the last bomb
+                        this.checkLastBombResolution();
+                        
                         this.scene.time.delayedCall(1000, () => { // Quicker reset for next bomb
                             try {
-                                if (this.scene.shotsRemaining > 0) {
-                                     // this.cleanupExistingBomb(); // Careful: BombUtils may have already handled/destroyed current activeBomb
-                                     // If this.bomb is null (set by BombUtils or above logic), cleanup is safe.
-                                    if (this.bomb) this.cleanupExistingBomb();
-                                    this.createBomb(this.scene.currentBombType || 'bomb');
+                                // First, check if ANY bombs are available AT ALL in the GameScene
+                                const anyBombs = this.scene.isAnyBombAvailable ? this.scene.isAnyBombAvailable() : 'undefined'; // LOGGING
+                                console.log(`[BombLauncher.checkForStoppedBombs.delayedCall] About to check bombs. GameScene.isAnyBombAvailable() reports: ${anyBombs}`);
+
+                                if (!this.scene.isAnyBombAvailable()) {
+                                    // If NO bombs are left at all, it's definitely a game over check
+                                    console.log("[BombLauncher.checkForStoppedBombs.delayedCall] No bombs of ANY type available. Calling GameScene.checkGameOver().");
+                                    if (this.scene.checkGameOver) {
+                                        this.scene.checkGameOver();
+                                    }
                                 } else {
-                                    if (this.scene.checkLevelCompletion) this.scene.checkLevelCompletion();
+                                    // Bombs of some type are still available, try to create a new one
+                                    // (createBomb will internally handle switching to an available type if current type is out)
+                                    if (this.bomb) this.cleanupExistingBomb();
+                                    this.createBomb(this.scene.currentBombType || 'bomb'); // GameScene's currentBombType should be an available one
                                 }
                             } catch (e) {
-                                console.error("Error in reset timer:", e);
+                                console.error("Error in reset timer (BombLauncher.checkForStoppedBombs):", e);
                                 if (this.scene.forceResetGameState) this.scene.forceResetGameState();
                             }
                         });
@@ -1300,7 +1412,34 @@ class BombLauncher {
             }
             this.bomb = null;
             
+            // Check if this was the last bomb
+            this.checkLastBombResolution();
+            
             return false;
+        }
+    }
+
+    /**
+     * Check if this was the last bomb and notify GameStateManager to proceed with game over/victory checks
+     */
+    checkLastBombResolution() {
+        // Check if we have a GameStateManager
+        if (this.scene && this.scene.gameStateManager) {
+            const anyBombsAvailable = this.scene.isAnyBombAvailable ? this.scene.isAnyBombAvailable() : false;
+            
+            if (!anyBombsAvailable && this.scene.gameStateManager.waitingForLastBomb) {
+                console.log("[BombLauncher.checkLastBombResolution] Last bomb has resolved, notifying GameStateManager");
+                
+                // Small delay to allow any visual effects to play before showing game over/victory UI
+                this.scene.time.delayedCall(500, () => {
+                    // Force check for level completion/game over now that last bomb has resolved
+                    if (this.scene.checkLevelCompletion) {
+                        this.scene.checkLevelCompletion();
+                    } else if (this.scene.gameStateManager.checkGameOver) {
+                        this.scene.gameStateManager.checkGameOver();
+                    }
+                });
+            }
         }
     }
 
@@ -1312,18 +1451,22 @@ class BombLauncher {
     toggleDebugMode(value) {
         // If value is provided, use it, otherwise toggle current state
         this.debugMode = value !== undefined ? value : !this.debugMode;
-        this.scene.debugMode = this.debugMode; // Sync with scene
+        if (this.scene) { // Add null check for this.scene
+            this.scene.debugMode = this.debugMode; // Sync with scene
+        } else {
+            console.warn("[BombLauncher.toggleDebugMode] this.scene is null, cannot sync debugMode with scene.");
+        }
         
         if (this.debugMode) {
             // Create debug text if it doesn't exist
-            if (!this.debugText) {
+            if (!this.debugText && this.scene) { // Add null check for this.scene
                 this.debugText = this.scene.add.text(10, 100, 'BombLauncher Debug', { 
                     font: '16px Arial', 
                     fill: '#00ff00' 
                 }).setDepth(1000);
             }
             console.log("BombLauncher debug mode enabled");
-            this.updateDebugText("Debug mode enabled");
+            if (this.debugText) this.updateDebugText("Debug mode enabled");
         } else {
             // Remove debug text if debug mode is turned off
             if (this.debugText && this.debugText.scene) {
@@ -1339,37 +1482,45 @@ class BombLauncher {
     // Method to create the bow visuals (moved from GameScene.js)
     createBow() {
         try {
-            // Create a silver bow shape using graphics
-            const bowGraphics = this.scene.add.graphics();
+            console.log("[BombLauncher.createBow] Attempting to create bow parts.");
+            // Verify textures exist
+            const upperExists = this.scene.textures.exists('upper_bow_part');
+            const lowerExists = this.scene.textures.exists('lower_bow_part');
+            console.log(`[BombLauncher.createBow] Texture 'upper_bow_part' exists: ${upperExists}`);
+            console.log(`[BombLauncher.createBow] Texture 'lower_bow_part' exists: ${lowerExists}`);
+
+            if (!upperExists || !lowerExists) {
+                console.error("[BombLauncher.createBow] One or both bow part textures missing. Ensure they are preloaded with correct keys: 'upper_bow_part', 'lower_bow_part'");
+                // return; // Optional: stop if textures are missing
+            }
+
+            const bowPartDepth = 5000; // Keep EXTREMELY high depth
+            const originUpper = { x: 0.5, y: 1 }; // CORRECT origin for upper bow
+            const originLower = { x: 0.5, y: 0 }; // Rotates around top-CENTER
+
+            // Adjust Y positions for the grip gap
+            const upperBowY = this.BOW_Y - (this.GRIP_GAP / 2);
+            const lowerBowY = this.BOW_Y + (this.GRIP_GAP / 2);
+
+            this.upperBowPart = this.scene.add.image(this.BOW_X, upperBowY, 'upper_bow_part');
+            this.upperBowPart.setOrigin(originUpper.x, originUpper.y);
+            this.upperBowPart.setDepth(bowPartDepth);
+            console.log(`[BombLauncher.createBow] upperBowPart details (CORRECT ORIGIN) - x: ${this.upperBowPart.x}, y: ${this.upperBowPart.y}, depth: ${this.upperBowPart.depth}, visible: ${this.upperBowPart.visible}, alpha: ${this.upperBowPart.alpha}, scaleX: ${this.upperBowPart.scaleX}, displayWidth: ${this.upperBowPart.displayWidth}, displayHeight: ${this.upperBowPart.displayHeight}, origin: (${this.upperBowPart.originX}, ${this.upperBowPart.originY})`);
+            const upperBounds = this.upperBowPart.getBounds();
+            console.log(`[BombLauncher.createBow] upperBowPart BOUNDS (CORRECT ORIGIN): x=${upperBounds.x.toFixed(2)}, y=${upperBounds.y.toFixed(2)}, w=${upperBounds.width.toFixed(2)}, h=${upperBounds.height.toFixed(2)}, L=${upperBounds.left.toFixed(2)}, R=${upperBounds.right.toFixed(2)}, T=${upperBounds.top.toFixed(2)}, B=${upperBounds.bottom.toFixed(2)}`);
+
+            this.lowerBowPart = this.scene.add.image(this.BOW_X, lowerBowY, 'lower_bow_part');
+            this.lowerBowPart.setOrigin(originLower.x, originLower.y);
+            this.lowerBowPart.setDepth(bowPartDepth);
+            console.log(`[BombLauncher.createBow] lowerBowPart details (CORRECT ORIGIN) - x: ${this.lowerBowPart.x}, y: ${this.lowerBowPart.y}, depth: ${this.lowerBowPart.depth}, visible: ${this.lowerBowPart.visible}, alpha: ${this.lowerBowPart.alpha}, scaleX: ${this.lowerBowPart.scaleX}, displayWidth: ${this.lowerBowPart.displayWidth}, displayHeight: ${this.lowerBowPart.displayHeight}, origin: (${this.lowerBowPart.originX}, ${this.lowerBowPart.originY})`);
+            const lowerBounds = this.lowerBowPart.getBounds();
+            console.log(`[BombLauncher.createBow] lowerBowPart BOUNDS (CORRECT ORIGIN): x=${lowerBounds.x.toFixed(2)}, y=${lowerBounds.y.toFixed(2)}, w=${lowerBounds.width.toFixed(2)}, h=${lowerBounds.height.toFixed(2)}, L=${lowerBounds.left.toFixed(2)}, R=${lowerBounds.right.toFixed(2)}, T=${upperBounds.top.toFixed(2)}, B=${lowerBounds.bottom.toFixed(2)}`); // Corrected to lowerBounds.top
             
-            // Silver color with slight gradient
-            const silverColor = 0xC0C0C0;
-            const darkSilver = 0x909090;
-            
-            // Create bow arc
-            bowGraphics.lineStyle(5, silverColor, 1);
-            bowGraphics.beginPath();
-            // Draw a semicircle arc for the bow
-            bowGraphics.arc(0, 0, 40, Phaser.Math.DegToRad(150), Phaser.Math.DegToRad(390), false);
-            bowGraphics.strokePath();
-            
-            // Add some details to make it look like a bow
-            bowGraphics.lineStyle(3, darkSilver, 1);
-            // Bow grip (middle part)
-            bowGraphics.fillStyle(darkSilver, 1);
-            bowGraphics.fillRect(-5, -10, 10, 20);
-            
-            // Generate a texture from the graphics
-            bowGraphics.generateTexture('bow', 100, 100); // Ensure key is 'bow'
-            bowGraphics.destroy(); // Destroy graphics object after texture generation
-            
-            // Create the bow image using the generated texture
-            this.bow = this.scene.add.image(this.BOW_X, this.BOW_Y, 'bow');
-            this.bow.setOrigin(0.5, 0.5);
-            this.bow.setDepth(10); // Above all game elements but below UI
-            
-            // Initialize bowstring (elastic line)
-            this.updateBowstring();
+            // Explicitly set visible and alpha for debugging, though default should be fine
+            this.upperBowPart.setVisible(true).setAlpha(1);
+            this.lowerBowPart.setVisible(true).setAlpha(1);
+
+            this.updateBowstring(); 
             
         } catch (error) {
             console.error("Error in createBow:", error);
@@ -1378,20 +1529,49 @@ class BombLauncher {
 
     // Method to set the aiming state and manage visuals
     setAiming(isAiming) {
+        const wasAiming = this.isAiming;
         this.isAiming = isAiming;
+        
         // Update the scene's aiming flag as well, if the scene has one
         // This ensures consistency if other parts of the scene rely on scene.isAiming
         if (typeof this.scene.isAiming !== 'undefined') {
             this.scene.isAiming = isAiming;
         }
 
+        // If starting to aim, make sure bomb is visible
+        if (isAiming && !wasAiming) {
+            if (this.bomb && this.bomb.scene) {
+                // Ensure bomb is visible when aiming begins
+                this.bomb.setVisible(true);
+                console.log("[BombLauncher.setAiming] Starting aim, ensuring bomb is visible");
+            } else if (!this.bombState.bombCreationPending) {
+                // No bomb when aiming starts - recreate it
+                console.log("[BombLauncher.setAiming] No bomb exists when starting aim, creating one");
+                const bombType = this.scene.currentBombType || 'blast_bomb';
+                this.createBomb(bombType);
+            }
+        }
+
         if (!isAiming) {
+            this.aimingBombRotationAngle = 0; // Reset visual rotation angle
+            if (this.bomb && this.bomb.scene) { // If static bomb still exists
+                this.bomb.angle = 0; // Reset its visual angle
+            }
             // Clear trajectory when aiming stops
             if (this.trajectoryGraphics && this.trajectoryGraphics.scene) {
                 this.trajectoryGraphics.clear();
             }
             // Reset bowstring to default position
             this.updateBowstring();
+
+            // --- ADD THIS: Reset Bow Part Rotation ---
+            if (this.upperBowPart && this.upperBowPart.scene) {
+                this.upperBowPart.angle = 0;
+            }
+            if (this.lowerBowPart && this.lowerBowPart.scene) {
+                this.lowerBowPart.angle = 0;
+            }
+            // --- END ADDITION ---
         }
     }
 } 

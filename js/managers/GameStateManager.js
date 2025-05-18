@@ -5,6 +5,8 @@ class GameStateManager {
         this.isLevelComplete = false;
         this.isGameOver = false;
         this.UI_DEPTH = 1000; // Same depth as in GameScene
+        this.lastBombActive = false; // Flag to track if last bomb is still active
+        this.waitingForLastBomb = false; // Flag to indicate we're waiting for last bomb to resolve
     }
 
     // Initialize the manager
@@ -279,9 +281,6 @@ class GameStateManager {
                     }
                 }
             });
-        } else if (this.scene.shotsRemaining <= 0 && !this.isGameOver) {
-            // If no shots remain and target percentage not reached, trigger game over
-            this.checkGameOver();
         }
     }
 
@@ -335,116 +334,57 @@ class GameStateManager {
 
     // Check for game over condition
     checkGameOver() {
-        if (this.isGameOver || this.isLevelComplete) return;
+        console.log("[GameStateManager.checkGameOver] Method ENTERED.");
+
+        // Sync GameStateManager's flags with GameScene's state at the start of the check
+        this.isGameOver = this.scene.isGameOver;
+        this.isLevelComplete = this.scene.isLevelComplete;
+
+        if (this.isGameOver || this.isLevelComplete) {
+            return; // Already handled by GameScene
+        }
+
+        const anyBombsAvailable = this.scene.isAnyBombAvailable ? this.scene.isAnyBombAvailable() : false;
+        const revealPercentage = this.scene.revealPercentage !== undefined ? this.scene.revealPercentage : 0;
+        const targetPercentage = this.scene.targetPercentage !== undefined ? this.scene.targetPercentage : 85;
+
+        // Special handling for the last bomb
+        const activeBomb = this.scene.bombLauncher ? this.scene.bombLauncher.getActiveLaunchedBomb() : null;
         
-        console.log("Game Over! No shots remaining.");
-        this.isGameOver = true;
-        
-        // Clear any trajectory display
-        if (this.scene.clearTrajectory) {
-            this.scene.clearTrajectory();
+        // Check if this is the last bomb scenario - no bombs available but one is still active
+        if (!anyBombsAvailable && activeBomb) {
+            this.lastBombActive = true;
+            this.waitingForLastBomb = true;
+            console.log("[GameStateManager.checkGameOver] Last bomb is active, deferring game over check until it resolves");
+            return; // Defer game over check until the bomb resolves
         }
         
-        // Play game over sound if available
-        if (this.scene.audioManager) {
-            try {
-                this.scene.audioManager.playGameOverSound();
-            } catch (error) {
-                console.error("Error during game over sound playback:", error);
+        // Don't perform game over check if we're waiting for the last bomb to resolve
+        if (this.waitingForLastBomb) {
+            // Only proceed with game over check if the last bomb is no longer active
+            if (this.scene.bombLauncher && !this.scene.bombLauncher.getActiveLaunchedBomb()) {
+                console.log("[GameStateManager.checkGameOver] Last bomb has resolved, proceeding with game over check");
+                this.lastBombActive = false;
+                this.waitingForLastBomb = false;
+            } else {
+                return; // Still waiting for last bomb to resolve
             }
         }
-        
-        // Apply a red flash to indicate failure
-        this.scene.cameras.main.flash(500, 255, 0, 0, 0.7);
-        
-        // Fade out any remaining blue veils
-        if (this.scene.blueVeils) {
-            this.scene.blueVeils.forEach(veil => {
-                if (veil && veil.scene) {
-                    // Handle any highlight effects
-                    if (veil.highlight && veil.highlight.scene) {
-                        this.scene.tweens.add({
-                            targets: veil.highlight,
-                            alpha: 0,
-                            duration: 8000, // 8 seconds
-                            ease: 'Linear',
-                            onComplete: () => {
-                                if (veil.highlight && veil.highlight.scene) {
-                                    veil.highlight.destroy();
-                                }
-                            }
-                        });
-                    }
-                    
-                    // Instead of destroying immediately, fade them out
-                    this.scene.tweens.add({
-                        targets: veil,
-                        alpha: 0,
-                        duration: 8000, // 8 seconds
-                        ease: 'Linear',
-                        onComplete: () => {
-                            if (veil && veil.scene) {
-                                veil.destroy();
-                            }
-                        }
-                    });
-                }
-            });
+
+        if (!anyBombsAvailable && revealPercentage < targetPercentage) {
+            console.log("[GameStateManager.checkGameOver] Conditions met. Calling scene.checkGameOver().");
+            // GameStateManager defers the actual setting of isGameOver and event emission to GameScene.checkGameOver
+            this.scene.checkGameOver();
         }
-        
-        // Create game over UI elements with high depth
-        const gameOverText = this.scene.add.text(
-            this.scene.cameras.main.centerX,
-            100,
-            'Game Over!',
-            {
-                fontSize: '48px',
-                fontFamily: 'Arial',
-                color: '#ff0000',
-                stroke: '#000000',
-                strokeThickness: 6,
-                shadow: { offsetX: 2, offsetY: 2, color: '#000', blur: 5, fill: true }
-            }
-        ).setOrigin(0.5, 0.5).setDepth(this.UI_DEPTH);
-        
-        const resultText = this.scene.add.text(
-            this.scene.cameras.main.centerX,
-            200,
-            `You revealed ${this.scene.revealPercentage}% of ${this.scene.targetPercentage}% needed`,
-            {
-                fontSize: '32px',
-                fontFamily: 'Arial',
-                color: '#ffffff',
-                stroke: '#000000',
-                strokeThickness: 4
-            }
-        ).setOrigin(0.5, 0.5).setDepth(this.UI_DEPTH);
-        
-        // After a delay, show restart button
-        this.scene.time.delayedCall(2000, () => {
-            const restartButton = this.scene.add.text(
-                this.scene.cameras.main.centerX,
-                this.scene.cameras.main.height - 100,
-                'Try Again',
-                {
-                    fontSize: '36px',
-                    fontFamily: 'Arial',
-                    color: '#ffffff',
-                    backgroundColor: '#d51a1a',
-                    padding: { x: 20, y: 10 }
-                }
-            ).setOrigin(0.5, 0.5)
-            .setDepth(this.UI_DEPTH)
-            .setInteractive({ useHandCursor: true })
-            .on('pointerdown', () => this.scene.scene.restart());
-            
-            restartButton.on('pointerover', () => restartButton.setStyle({ color: '#ffff00' }));
-            restartButton.on('pointerout', () => restartButton.setStyle({ color: '#ffffff' }));
-        });
     }
 
     // Check the game state for potential recovery from stuck situations
     checkGameState() {
+        if (!this.scene || !this.scene.isFullyInitialized || !this.scene.scene.isActive()) {
+            // console.log("[GameStateManager.checkGameState] Scene not fully initialized or inactive, skipping check.");
+            return;
+        }
+
         const currentTime = Date.now();
         
         // Case 1: Bomb has been active for too long without hitting anything
@@ -508,164 +448,52 @@ class GameStateManager {
     
     // Force reset the game state to recover from stuck situations
     forceResetGameState() {
-        console.log("FORCE RESET: Attempting to recover game state");
-        
-        try {
-            // Cancel all timers
-            if (this.scene.bombMissTimer) {
-                this.scene.bombMissTimer.remove();
-                this.scene.bombMissTimer = null;
-            }
-            
-            if (this.scene.pendingReset) {
-                clearTimeout(this.scene.pendingReset);
-                this.scene.pendingReset = null;
-            }
-            
-            // Clear any stored timeouts in bombState
-            if (this.scene.bombState.autoResetTimer) {
-                clearTimeout(this.scene.bombState.autoResetTimer);
-                this.scene.bombState.autoResetTimer = null;
-            }
-            
-            // Ensure no bomb is active - first check scene.bomb
-            if (this.scene.bomb) {
-                if (this.scene.bomb.scene) {
-                    // Make sure it's not active in physics
-                    if (this.scene.bomb.body) {
-                        try {
-                            // Make the bomb inactive in physics
-                            this.scene.bomb.setStatic(true);
-                            this.scene.bomb.setVelocity(0, 0);
-                            
-                            // Remove from the physics world if possible
-                            if (this.scene.matter && this.scene.matter.world) {
-                                this.scene.matter.world.remove(this.scene.bomb.body);
-                            }
-                        } catch (e) {
-                            console.warn("Error making bomb static:", e);
-                        }
-                    }
-                    
-                    // Destroy the bomb object
-                    try {
-                        this.scene.bomb.destroy();
-                    } catch (e) {
-                        console.warn("Error destroying bomb:", e);
-                    }
-                }
-                this.scene.bomb = null;
-            }
-            
-            // Also check bombLauncher's bomb reference
-            if (this.scene.bombLauncher && this.scene.bombLauncher.bomb) {
-                if (this.scene.bombLauncher.bomb.scene) {
-                    try {
-                        this.scene.bombLauncher.bomb.destroy();
-                    } catch (e) {
-                        console.warn("Error destroying bombLauncher.bomb:", e);
-                    }
-                }
-                this.scene.bombLauncher.bomb = null;
-                
-                // Reset bombLauncher state
-                if (this.scene.bombLauncher.bombState) {
-                    this.scene.bombLauncher.bombState.active = false;
-                }
-                
-                // Clear any visuals
-                this.scene.bombLauncher.clearVisuals();
-            }
-            
-            // Reset bomb state
-            this.scene.bombState.active = false;
-            this.scene.bombState.pendingReset = null;
-            
-            // Create a new bomb after a short delay
-            this.scene.time.delayedCall(500, () => {
-                if (this.scene.shotsRemaining > 0) {
-                    console.log("FORCE RESET: Creating new bomb");
-                    
-                    // Try to use the bombLauncher first (preferred method)
-                    if (this.scene.bombLauncher && this.scene.bombLauncher.createBomb) {
-                        try {
-                            // Make sure any existing bomb is cleaned up first
-                            this.scene.bombLauncher.cleanupExistingBomb();
-                            
-                            // Create a new bomb
-                            console.log("FORCE RESET: Using bombLauncher.createBomb");
-                            this.scene.bombLauncher.createBomb(this.scene.currentBombType || 'blast_bomb');
-                        } catch (e) {
-                            console.error("FORCE RESET: Error using bombLauncher.createBomb:", e);
-                            
-                            // Fallback to scene's resetBomb
-                            if (this.scene.resetBomb) {
-                                console.log("FORCE RESET: Falling back to scene.resetBomb");
-                                this.scene.resetBomb();
-                            }
-                        }
-                    } 
-                    // Fallback to scene's resetBomb if no bombLauncher
-                    else if (this.scene.resetBomb) {
-                        console.log("FORCE RESET: Using scene.resetBomb");
-                        this.scene.resetBomb();
-                    }
-                    
-                    // Update last reset time
-                    this.scene.bombState.lastResetTime = Date.now();
-                } else {
-                    // Otherwise check if the level is complete
-                    this.checkLevelCompletion();
-                }
-            });
-        } catch (error) {
-            console.error("Critical error in forceResetGameState:", error);
-            
-            // Absolute fallback - just try to create a new bomb directly
-            this.scene.time.delayedCall(800, () => {
-                try {
-                    if (this.scene.shotsRemaining > 0) {
-                        console.log("FORCE RESET: Last resort - direct bomb creation");
-                        
-                        // Null out bomb references first
-                        this.scene.bomb = null;
-                        if (this.scene.bombLauncher) {
-                            this.scene.bombLauncher.bomb = null;
-                        }
-                        
-                        // Create a simple static bomb
-                        const newBomb = this.scene.matter.add.image(
-                            this.scene.BOW_X || 300, 
-                            this.scene.BOW_Y - 20 || 520, 
-                            this.scene.currentBombType || 'blast_bomb'
-                        );
-                        newBomb.setCircle(30);
-                        newBomb.setStatic(true);
-                        newBomb.bombType = this.scene.currentBombType || 'blast_bomb';
-                        
-                        // Store the reference
-                        this.scene.bomb = newBomb;
-                        if (this.scene.bombLauncher) {
-                            this.scene.bombLauncher.bomb = newBomb;
-                            this.scene.bombLauncher.createElasticLine(newBomb.x, newBomb.y);
-                        }
-                    }
-                } catch (e) {
-                    console.error("FORCE RESET: Last resort failed:", e);
-                }
-            });
+        if (!this.scene || !this.scene.isFullyInitialized || !this.scene.scene.isActive()) {
+            console.warn("[GameStateManager.forceResetGameState] Scene not fully initialized or inactive, cannot force reset effectively.");
+            return;
         }
+
+        console.warn("[GameStateManager.forceResetGameState] Failsafe triggered. Requesting GameScene to check completion/game over.");
+
+        // Instead of directly setting flags and emitting, let GameScene handle the sequence.
+        // GameScene.checkLevelCompletion() will call GameScene.checkGameOver() if not complete.
+        if (this.scene && typeof this.scene.checkLevelCompletion === 'function') {
+            this.scene.checkLevelCompletion();
+        } else {
+            console.error("[GameStateManager.forceResetGameState] Scene or scene.checkLevelCompletion is not available!");
+            // Fallback to a more direct game over if GameScene is broken, though this is unlikely to be graceful.
+            // this.isGameOver = true; 
+            // this.scene.isGameOver = true;
+            // this.scene.gameOverSetBy = "GameStateManager.forceResetGameState_FALLBACK";
+            // this.scene.events.emit('gameOver', { percentage: this.scene.revealPercentage, targetPercentage: this.scene.targetPercentage, score: this.scene.score });
+        }
+
+        // Ensure GameScene's bomb states are reset to allow new bomb creation if it's not actually game over
+        // This should ideally be handled within GameScene's logic paths triggered by checkLevelCompletion/checkGameOver
+        // For example, if it's not game over and not level complete, a new bomb should be creatable.
+        // if (this.scene.bombState) { this.scene.bombState.active = false; }
+        // if (this.scene.bombLauncher && this.scene.bombLauncher.bombState) { this.scene.bombLauncher.bombState.active = false; }
     }
 
     // Reset the game state for a new level
     resetGameState() {
+        console.log("[GameStateManager.resetGameState] Resetting game state.");
         this.isLevelComplete = false;
         this.isGameOver = false;
+        this.scene.isLevelComplete = false;
+        this.scene.isGameOver = false;
+        this.scene.gameOverSetBy = null; // RESET THE TRACKER
+        this.lastBombActive = false;
+        this.waitingForLastBomb = false;
+        // ... other resets like score, revealPercentage, should be handled by GameScene's resetLevel or similar
+        // This manager primarily focuses on the isGameOver and isLevelComplete flags.
     }
 
     // Clean up resources when the scene is shut down
     shutdown() {
         console.log("GameStateManager: shutting down");
+        this.lastBombActive = false;
+        this.waitingForLastBomb = false;
     }
 }
 

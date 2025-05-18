@@ -7,6 +7,7 @@
         this.UI_DEPTH = 1000; // UI depth for consistent layering
         this.score = 0; // Added for score tracking
         this.isInitialDataReady = false; // ADD THIS LINE
+        this.isFullyInitialized = false; // ADD THIS NEW FLAG
         
         // Voice congratulation messages - AudioManager will use this
         this.voiceMessages = [
@@ -62,7 +63,9 @@
             STICKY: 'sticky_bomb',
             SHATTERER: 'shatterer_bomb',
             DRILLER: 'driller_bomb',  // Add Driller Girl bomb type
-            RICOCHET: 'ricochet_bomb' // Add Ricochet bomb for level 2
+            RICOCHET: 'ricochet_bomb', // Add Ricochet bomb for level 2
+            SHRAPNEL: 'shrapnel_bomb', // Add Shrapnel bomb type
+            MELTER: 'melter_bomb' // Add Melter Girl bomb type
         };
         
         // Bomb names based on Game Design Document
@@ -73,7 +76,9 @@
             [this.BOMB_TYPES.STICKY]: 'Sticky Girl',
             [this.BOMB_TYPES.SHATTERER]: 'Shatterer Girl',
             [this.BOMB_TYPES.DRILLER]: 'Driller Girl',   // Add Driller Girl name
-            [this.BOMB_TYPES.RICOCHET]: 'Ricochet Girl'  // Add Ricochet Girl name
+            [this.BOMB_TYPES.RICOCHET]: 'Ricochet Girl',  // Add Ricochet Girl name
+            [this.BOMB_TYPES.SHRAPNEL]: 'Shrapnel Girl',  // Add Shrapnel Girl name
+            [this.BOMB_TYPES.MELTER]: 'Melter Girl'  // Add Melter Girl name
         };
         
         // Remaining bombs of each type - will be set by level manager
@@ -94,6 +99,33 @@
 
     async create() { // Make create method async
         console.log('[GameScene.create] Method started. Current Level:', this.currentLevel);
+
+        // >>> START OF CRUCIAL RESETS <<<
+        this.isLevelComplete = false;
+        this.isGameOver = false;
+        this.gameOverSetBy = null; // Reset who set game over
+        this.revealPercentage = 0;
+        this.score = 0;
+        this.clearedIceBlocks = 0;
+        this.lastRevealPercentage = 0; // Reset for voice triggers
+        this.isInitialDataReady = false; // Reset UI data ready flag
+        this.isFullyInitialized = false; // Reset full initialization flag
+        this.isTransitioningLevel = false; // Reset transition flag
+        this.victoryDelayTimer = null; // Clear any pending victory timer
+
+        // Reset bomb state more thoroughly
+        this.bombState = {
+            active: false,
+            lastResetTime: 0,
+            lastBombFired: 0,
+            pendingReset: null,
+            maxIdleTime: 20000,
+            autoResetTimer: null
+        };
+        // Ensure bombsRemaining is reset before setupBombs populates it
+        this.resetBombCounts(); // This was already in init, but good to ensure it happens before setupBombs
+        // >>> END OF CRUCIAL RESETS <<<
+
         try {
             console.log(`GameScene: Creating scene for level ${this.currentLevel}`);
             
@@ -116,8 +148,7 @@
             this.levelManager.setLevel(this.currentLevel); // Set the level
             await this.levelManager.initialize(); // Await initialization
             this.targetPercentage = this.levelManager.getTargetPercentage(); // Set targetPercentage here
-            this.MAX_SHOTS = this.levelManager.getMaxShots(); // ADD THIS LINE
-            this.shotsRemaining = this.MAX_SHOTS; // ADD THIS LINE
+            this.shotsRemaining = 999; // Set to a very high number for "unlimited"
 
             // Setup the game level first
             this.setupGame(); // This will also launch UIScene and create bomb selector
@@ -125,6 +156,8 @@
             // Initialize the game state manager
             this.gameStateManager = new GameStateManager(this);
             this.gameStateManager.init();
+            // Explicitly reset GameStateManager's state as well
+            this.gameStateManager.resetGameState();
             
             // Initialize audio system EARLY using the manager
             this.initializeAudio();
@@ -160,6 +193,8 @@
             this.events.emit('initialUIDataReady');
             
             console.log("GameScene creation complete");
+            this.isFullyInitialized = true; // SET FLAG TO TRUE HERE
+            console.log("[GameScene.create] GameScene is NOW fully initialized."); // Log for confirmation
         } catch (error) {
             console.error("Error in create function:", error);
         }
@@ -845,8 +880,8 @@
                             // }
                         // });
                     } else {
-                        if (this.debugMode) console.log(`[DecrementCount] No other bomb types available.`);
-                        // Optionally handle game over or no-more-bombs state here
+                        if (this.debugMode) console.log(`[DecrementCount] No other bomb types available. Checking for game over.`);
+                        this.checkGameOver(); // <--- ADD THIS LINE
                     }
                 }
             } else {
@@ -982,8 +1017,16 @@
         if (this.isLevelComplete || this.isGameOver || this.victoryDelayTimer) return; // Prevent multiple completions or if already delaying
 
         const allBombsUsed = !this.isAnyBombAvailable();
-        const targetPercentageReached = this.revealPercentage >= this.targetPercentage;
+        const targetPercentageReached = this.revealPercentage >= this.targetPercentage; // General level pass condition
         const fullClearReached = this.revealPercentage >= 100;
+
+        // Check if we have an active bomb while having no bombs available (last bomb scenario)
+        const activeBomb = this.bombLauncher ? this.bombLauncher.getActiveLaunchedBomb() : null;
+        if (allBombsUsed && activeBomb && this.gameStateManager) {
+            // Let the GameStateManager handle this special case
+            console.log("[GameScene.checkLevelCompletion] Last bomb is still active, deferring completion check");
+            return;
+        }
 
         const condition1Met = allBombsUsed && targetPercentageReached;
         const condition2Met = fullClearReached;
@@ -996,31 +1039,45 @@
                 victoryReason = `Target ${this.targetPercentage}% reached with all bombs used.`;
             }
 
-            console.log(`Level ${this.currentLevel} meets completion criteria (${victoryReason}). Starting 5s victory delay.`);
+            // Calculate Stars based on PRD using the current revealPercentage
+            const currentRevealAtWin = this.revealPercentage; // SNAPSHOT this value
+            let starsEarned = 0;
+            if (currentRevealAtWin >= 100) { 
+                starsEarned = 3;
+            } else if (currentRevealAtWin >= 92) { 
+                starsEarned = 2;
+            } else if (currentRevealAtWin >= 85) { 
+                starsEarned = 1;
+            }
+
+            // SNAPSHOT other relevant values
+            const scoreAtWin = this.score;
+            const completedLevelIdAtWin = this.currentLevel;
+
+            console.log(`Level ${completedLevelIdAtWin} meets completion criteria (${victoryReason}). Reveal: ${currentRevealAtWin}%. Earned ${starsEarned} stars. Starting 5s victory delay.`);
             this.victoryDelayTimer = this.time.delayedCall(5000, () => {
-                this.victoryDelayTimer = null; // Clear the timer reference
+                this.victoryDelayTimer = null; 
                 if (this.isGameOver) {
-                    console.log("[GameScene.checkLevelCompletion] Victory delay ended, but game is over. No victory UI.");
-                    return; // Don't show victory if game over happened during delay
+                    console.log("[GameScene.checkLevelCompletion] Victory delay ended, but game is over. No victory UI or transition.");
+                    return; 
                 }
                 
-                this.isLevelComplete = true; // Set isLevelComplete HERE
-                // Bonus score for remaining shots only makes sense if condition2Met (100% clear) happened with shots left.
-                // If condition1Met, allBombsUsed is true, so shotsRemaining should effectively be 0 for bonus calc purposes for *that* condition.
-                if (condition2Met && this.shotsRemaining > 0) { // shotsRemaining might be > 0 if 100% clear achieved early
-                    this.score += (this.shotsRemaining * 100);
-                }
-                this.events.emit('updateScore', this.score); // Emit final score update
+                this.isLevelComplete = true; 
+                // Bonus score calculation based on scoreAtWin might be tricky if shotsRemaining is used
+                // For now, let's assume scoreAtWin already includes any relevant pre-completion bonuses.
+                // If shotsRemaining bonus is applied *after* this point, it should be added to scoreAtWin before emitting.
+
                 if (this.audioManager) this.audioManager.playVictoryMusic();
-                console.log(`Level ${this.currentLevel} Complete! Reason: ${victoryReason}. Final Score: ${this.score}. Victory UI displayed after delay.`);
-                this.events.emit('levelComplete', { 
-                    result: 'win', 
-                    percentage: this.revealPercentage, 
-                    shotsRemaining: this.shotsRemaining, // This will reflect actual shots left, if any
-                    score: this.score,
-                    reason: victoryReason,
-                    victoryBackgroundKey: this.levelManager.getVictoryBackgroundKey() // ADD THIS LINE
+                console.log(`Level ${completedLevelIdAtWin} Complete! Reason: ${victoryReason}. Final Score: ${scoreAtWin}. Emitting showVictoryScreen event.`);
+                
+                this.events.emit('showVictoryScreen', { 
+                    completedLevelId: completedLevelIdAtWin,  // USE SNAPSHOT
+                    starsEarned: starsEarned,               // USE SNAPSHOT
+                    score: scoreAtWin,                      // USE SNAPSHOT
+                    revealPercentage: currentRevealAtWin,   // USE SNAPSHOT
+                    reason: victoryReason                   // USE SNAPSHOT
                 });
+                
             });
         } else if (allBombsUsed && this.revealPercentage < this.targetPercentage) {
             // If not complete and all bombs used and target not met, check for game over.
@@ -1029,7 +1086,13 @@
     }
 
     checkGameOver() {
-        if (this.isGameOver || this.isLevelComplete) return;
+        // ADD DETAILED LOG HERE
+        console.log(`[GameScene.checkGameOver ENTRY PRE-CHECK] isGameOver: ${this.isGameOver}, isLevelComplete: ${this.isLevelComplete}, anyBombs: ${this.isAnyBombAvailable()}, reveal: ${this.revealPercentage}, target: ${this.targetPercentage}, setBy: ${this.gameOverSetBy}`);
+
+        if (this.isGameOver || this.isLevelComplete) {
+            console.log(`[GameScene.checkGameOver SKIPPING] Already game over (set by ${this.gameOverSetBy}) or level complete.`);
+            return;
+        }
 
         // If a victory delay timer is running, cancel it because it's game over now.
         if (this.victoryDelayTimer) {
@@ -1038,15 +1101,45 @@
             this.victoryDelayTimer = null;
         }
 
+        // Check if we have an active bomb while having no bombs available (last bomb scenario)
+        const activeBomb = this.bombLauncher ? this.bombLauncher.getActiveLaunchedBomb() : null;
+        if (!this.isAnyBombAvailable() && activeBomb && this.gameStateManager) {
+            // Let the GameStateManager handle this special case
+            console.log("[GameScene.checkGameOver] Last bomb is still active, deferring to GameStateManager");
+            this.gameStateManager.checkGameOver();
+            return;
+        }
+
         if (!this.isAnyBombAvailable() && this.revealPercentage < this.targetPercentage) { // Check if all bombs are used and target not met
+            // Double-check if we're in a "last bomb resolution" state
+            if (this.gameStateManager && this.gameStateManager.waitingForLastBomb) {
+                // Only proceed if GameStateManager indicates the last bomb has resolved
+                if (activeBomb) {
+                    console.log("[GameScene.checkGameOver] Still waiting for last bomb to fully resolve");
+                    return;
+                }
+                console.log("[GameScene.checkGameOver] Last bomb has resolved, proceeding with game over");
+            }
+
             this.isGameOver = true;
+            this.gameOverSetBy = "checkGameOver"; // IDENTIFY SETTER
             if (this.audioManager) this.audioManager.playGameOverSound();
             console.log(`Game Over! Revealed: ${this.revealPercentage}%, Target: ${this.targetPercentage}%`);
+            console.log("[GameScene.checkGameOver] Emitting 'gameOver' event NOW.");
             this.events.emit('gameOver', { 
                 percentage: this.revealPercentage, 
                 targetPercentage: this.targetPercentage, 
                 score: this.score 
             });
+
+            // Ensure bomb states are cleared to prevent further bomb creation attempts
+            if (this.bombState) {
+                this.bombState.active = false;
+                // Potentially clear pendingReset flags if they exist and are relevant here
+            }
+            if (this.bombLauncher && this.bombLauncher.bombState) {
+                this.bombLauncher.bombState.active = false;
+            }
         }
     }
 
@@ -1056,31 +1149,14 @@
 
     resetBomb() {
         try {
-            const callSource = new Error().stack.split('\n')[2]?.trim() || 'unknown source'; // Get caller info
-            if (this.debugMode) console.log(`[ResetBomb] Called from ${callSource}. Current bomb: ${this.bomb ? this.bomb.bombType : 'null'}, Launcher bomb: ${this.bombLauncher && this.bombLauncher.bomb ? this.bombLauncher.bomb.bombType : 'null'}`);
-            console.log("resetBomb called, creating new bomb");
-            
-            // If we still have an active bomb, clean it up
+            // Clear existing bomb if any
             if (this.bomb && this.bomb.scene) {
-                // Check if this is a dynamic bomb that the launcher considers active
-                const isDynamicAndActiveInLauncher = this.bombLauncher && 
-                                                   this.bombLauncher.isBombActive() && 
-                                                   this.bomb.body && !this.bomb.body.isStatic;
-
-                if (isDynamicAndActiveInLauncher) {
-                    console.warn("GameScene.resetBomb: Attempted to reset while BombLauncher has an active dynamic bomb. Skipping destruction of scene.bomb.");
-                } else {
-                    try {
-                        if (this.debugMode) console.log(`[ResetBomb] Destroying existing scene.bomb (Type: ${this.bomb ? this.bomb.bombType : 'N/A'})`);
-                        console.log("GameScene.resetBomb: Destroying existing scene.bomb", this.bomb.bombType);
+                // If bomb is a Matter body, remove it from world
+                if (this.bomb.body) {
+                    this.matter.world.remove(this.bomb.body);
+                }
                 this.bomb.destroy();
-                } catch (e) {
-                        console.warn("Error destroying old bomb in resetBomb:", e);
-                }
-                    this.bomb = null; // Null out if we destroyed it or if it was already null
-                }
-            } else {
-                this.bomb = null; // Ensure it's null if it didn't exist or wasn't in scene
+                this.bomb = null;
             }
             
             // Clean up any trajectory dots 
@@ -1092,41 +1168,21 @@
                     this.bombLauncher.bombState.active = false;
                 }
                 
-                // Create a new bomb if we have shots left
-                if (this.shotsRemaining > 0) {
-                    // Using BombLauncher to create new bomb
-                    console.log("Using BombLauncher to create new bomb of type:", this.currentBombType);
-                    if (this.debugMode) console.log(`[ResetBomb] Calling BombLauncher.createBomb with type: ${this.currentBombType}`);
-                    this.bombLauncher.createBomb(this.currentBombType);
-                } else {
-                    // Check if level is complete when no shots remain
-                    console.log("No shots remaining, checking level completion");
-            this.checkLevelCompletion();
-                }
+                // Create a new bomb (always possible with unlimited shots)
+                console.log("Using BombLauncher to create new bomb of type:", this.currentBombType);
+                if (this.debugMode) console.log(`[ResetBomb] Calling BombLauncher.createBomb with type: ${this.currentBombType}`);
+                this.bombLauncher.createBomb(this.currentBombType);
+
             } else {
                 console.warn("No bombLauncher found in resetBomb");
                 // Create a basic bomb if the launcher doesn't exist
-        this.bomb = this.matter.add.image(this.BOW_X, this.BOW_Y - 20, this.currentBombType);
+                this.bomb = this.matter.add.image(this.BOW_X, this.BOW_Y - 20, this.currentBombType);
                 this.bomb.setCircle(30);
-        this.bomb.setStatic(true);
-        this.bomb.bombType = this.currentBombType;
+                this.bomb.setStatic(true);
+                this.bomb.bombType = this.currentBombType;
             }
         } catch (error) {
             console.error("Error in resetBomb:", error);
-            
-            // Safety - force game state reset if something goes wrong
-            this.time.delayedCall(500, () => {
-                // Try to create a bomb one last time with error handling
-                try {
-                    if (this.bombLauncher) {
-                        this.bombLauncher.cleanupExistingBomb();
-                        this.bombLauncher.createBomb(this.currentBombType);
-                    }
-                } catch (e) {
-                    console.error("Failed to reset bomb in recovery:", e);
-                    this.forceResetGameState();
-                }
-            });
         }
     }
     
@@ -1201,6 +1257,19 @@
                 // Driller needs good momentum
                 bombProperties.density = 0.0004;
                 bombProperties.frictionAir = 0.0008; // Reduced from 0.003 to 0.0008
+                break;
+                
+            case this.BOMB_TYPES.SHRAPNEL:
+                // Shrapnel bomb needs to fragment, similar to Cluster but slightly different
+                bombProperties.density = 0.0003;
+                bombProperties.frictionAir = 0.001;
+                break;
+                
+            case this.BOMB_TYPES.MELTER:
+                // Melter bomb should have medium weight properties
+                bombProperties.density = 0.0003;
+                bombProperties.frictionAir = 0.001;
+                bombProperties.restitution = 0.85; // Slightly less bouncy
                 break;
                 
             case this.BOMB_TYPES.RICOCHET:
@@ -1653,10 +1722,15 @@
     
     update(time, delta) {
         try {
-            // Check if the scene is paused or being destroyed
-            if (this.scene.isPaused() || !this.scene.isActive()) {
-                    return;
-                }
+            // >>> ADD THIS CHECK AT THE VERY BEGINNING <<<
+            if (!this.isFullyInitialized || this.scene.isPaused() || !this.scene.isActive()) {
+                return;
+            }
+
+            // Check if the scene is paused or being destroyed -- This check is now part of the above
+            // if (this.scene.isPaused() || !this.scene.isActive()) {
+            //         return;
+            //     }
                 
             // Apply any settings that need to be updated every frame
             if (typeof this.applyGameSettings === 'function') {
@@ -1737,58 +1811,57 @@
     // Emergency method to reset after a bomb failure
     resetFailedBomb() {
         try {
-            console.log("Emergency bomb reset triggered");
-            
-            // Clean up any existing bomb
-            if (this.bomb) {
-                if (this.bomb.scene) {
-                    try {
-                        // Make the bomb inactive in the physics system
-                        if (this.bomb.body) {
-                            this.bomb.setStatic(true);
-                            this.bomb.setVelocity(0, 0);
-                        }
-                        
-                        // Destroy the bomb
-                        this.bomb.destroy();
-                    } catch (e) {
-                        console.warn("Error destroying bomb in emergency reset:", e);
-                    }
+            // Destroy the failed bomb
+            if (this.bomb && this.bomb.scene) {
+                // Create fizzle effect if the method exists
+                if (this.createFizzleEffect) {
+                    this.createFizzleEffect(this.bomb.x, this.bomb.y);
                 }
                 
-                // Clear the reference
+                // Remove from Matter world if it's a Matter body
+                if (this.bomb.body) {
+                    this.matter.world.remove(this.bomb.body);
+                }
+                
+                this.bomb.destroy();
                 this.bomb = null;
             }
             
-            // Reset the launcher state
-            if (this.bombLauncher) {
-                this.bombLauncher.bombState.active = false;
-                this.bombLauncher.clearVisuals();
-                
-                if (this.bombLauncher.bomb) {
-                    try {
-                        if (this.bombLauncher.bomb.scene) {
-                            this.bombLauncher.bomb.destroy();
-                        }
-                        this.bombLauncher.bomb = null;
-                    } catch (e) {
-                        console.warn("Error cleaning up bomb in bombLauncher:", e);
-                    }
-                }
+            // Ensure bomb state is inactive
+            if (this.bombState) {
+                this.bombState.active = false;
+            }
+            
+            // Clear trajectory if it exists
+            if (this.clearTrajectory) {
+                this.clearTrajectory();
             }
             
             // Create a new bomb after a short delay
             this.time.delayedCall(300, () => {
-                // Only create a new bomb if we have shots remaining
-                if (this.shotsRemaining > 0) {
-                    if (this.bombLauncher) {
-                        this.bombLauncher.createBomb(this.currentBombType || 'bomb');
-                } else {
-                    this.resetBomb();
+                // ADDED: If the bomb launcher is currently aiming, don't create a new bomb here.
+                if (this.bombLauncher && this.bombLauncher.isAiming) {
+                    console.log("[GameScene.resetFailedBomb.delayedCall] Currently aiming, deferring new bomb creation.");
+                    this.bombState.active = false; // Ensure state reflects no active bomb for GameScene
+                    if(this.bombLauncher.bombState) this.bombLauncher.bombState.active = false; // Sync with launcher
+                    return; 
                 }
-            } else {
-                    // Check if level is complete
-                    this.checkLevelCompletion();
+
+                if (!this.isAnyBombAvailable()) {
+                    console.log("resetFailedBomb: No bombs available after failed bomb. Checking level completion/game over.");
+                    this.checkLevelCompletion(); // CALL THIS FIRST
+                } else {
+                    // Only create a new bomb if some are actually available and game is not over/complete
+                    if (this.isAnyBombAvailable() && !this.isGameOver && !this.isLevelComplete) {
+                        if (this.bombLauncher) {
+                            this.bombLauncher.createBomb(this.currentBombType || 'bomb');
+                        } else {
+                            this.resetBomb();
+                        }
+                    } else if (!this.isGameOver && !this.isLevelComplete) {
+                        // This case implies no bombs available but game not yet over - should be caught by previous checkGameOver
+                        console.log("resetFailedBomb: Condition where no bombs available but game not over. Should have been handled.");
+                    }
                 }
             });
         } catch (e) {
@@ -1841,7 +1914,7 @@
         this.currentLevel = data.levelNumber || 1; // Default to level 1 if not provided
         console.log(`[GameScene.init] Set currentLevel to: ${this.currentLevel}`); // ADD THIS LOG
         
-            this.shotsRemaining = this.MAX_SHOTS;
+            this.shotsRemaining = 999; // Set to a very high number for "unlimited"
             // this.isAiming = false; // Managed by BombLauncher or BombInputHandler
             this.bombFired = false;
             this.bombReady = false;
@@ -1932,8 +2005,13 @@
             [this.BOMB_TYPES.STICKY]: 0,
             [this.BOMB_TYPES.SHATTERER]: 0,
             [this.BOMB_TYPES.DRILLER]: 0,
-            [this.BOMB_TYPES.RICOCHET]: 0
+            [this.BOMB_TYPES.RICOCHET]: 0,
+            [this.BOMB_TYPES.SHRAPNEL]: 0,
+            [this.BOMB_TYPES.MELTER]: 0
         };
+        
+        // Always ensure 3 Melter bombs for testing purposes
+        this.bombsRemaining[this.BOMB_TYPES.MELTER] = 3;
     }
 
    
@@ -2554,6 +2632,12 @@
         // Create a periodic check that runs every 5 seconds
         this.globalFailsafeTimer = setInterval(() => {
             try {
+                // >>> ADD THIS CHECK INSIDE THE FAILSAFE TIMER CALLBACK <<<
+                if (!this.isFullyInitialized || !this.scene.isActive()) {
+                    // console.log("[GlobalFailsafe] GameScene not fully initialized or inactive, skipping check.");
+                    return;
+                }
+
                 if (this.gameStateManager && typeof this.gameStateManager.checkGameState === 'function') {
                     this.gameStateManager.checkGameState();
                 } else {
@@ -2578,106 +2662,19 @@
     
     // Force reset the game state to recover from stuck situations
     forceResetGameState() {
-        // Forward to gameStateManager
-        this.gameStateManager.forceResetGameState();
-        
-        // For compatibility, sync the state variables
-        this.isLevelComplete = this.gameStateManager.isLevelComplete;
-        this.isGameOver = this.gameStateManager.isGameOver;
+        console.warn("GameStateManager: Forcing game state reset due to potential stuck state.");
+        this.isLevelComplete = false; // Ensure level complete is false
+        this.isGameOver = true;      // Set game over to true to trigger Game Over UI
+        this.scene.isLevelComplete = false;
+        this.scene.isGameOver = true;
+        this.scene.gameOverSetBy = "GameStateManager.forceResetGameState"; // IDENTIFY SETTER
+
+        // Emit a game over event immediately to ensure UI updates
+        console.log("[GameStateManager.forceResetGameState] Emitting 'gameOver' event NOW.");
+        // ... other resets
     }
 
-    // When scene is shutting down, clean up all resources
-    shutdown() {
-        // Clean up the gameStateManager
-        if (this.gameStateManager) {
-            this.gameStateManager.shutdown();
-        }
-        
-        // Clean up the collisionManager
-        if (this.collisionManager) {
-            this.collisionManager.shutdown();
-            this.collisionManager = null;
-        }
-        
-        // Clear the failsafe timer to prevent memory leaks
-        if (this.globalFailsafeTimer) {
-            clearInterval(this.globalFailsafeTimer);
-            this.globalFailsafeTimer = null;
-        }
-        
-        // Clean up any pending timeouts
-        if (this.pendingReset) {
-            clearTimeout(this.pendingReset);
-            this.pendingReset = null;
-        }
-        
-        if (this.bombState.autoResetTimer) {
-            clearTimeout(this.bombState.autoResetTimer);
-            this.bombState.autoResetTimer = null;
-        }
-        
-        // Clean up audio resources via AudioManager
-        if (this.audioManager) {
-            try {
-                console.log("Shutdown: Cleaning up audio resources via AudioManager");
-                this.audioManager.cleanup();
-            } catch(error) {
-                console.error("Error cleaning up audio in shutdown:", error);
-            }
-            // Null out reference after cleanup
-            this.audioManager = null;
-        }
-        
-        // Clean up any remaining bomb or resources
-        if (this.bomb && this.bomb.scene) {
-            this.bomb.destroy();
-            this.bomb = null;
-        }
-        
-        // Clean up BombInputHandler
-        if (this.bombInputHandler) {
-            this.bombInputHandler.cleanup();
-            this.bombInputHandler = null;
-        }
-        
-        // Call original shutdown method
-        super.shutdown();
-        
-        // Remove all input handlers
-        this.input.off('pointerdown');
-        this.input.off('pointermove');
-        this.input.off('pointerup');
-        
-        // Clear all timers
-        if (this.timers) {
-            this.timers.forEach(timer => {
-                if (timer) timer.remove();
-            });
-            this.timers = [];
-        }
-        
-        // Remove all tweens
-        this.tweens.killAll();
-        
-        // Clear any bomb-specific resources for a launched bomb
-        const activeLaunchedBomb = this.bombLauncher ? this.bombLauncher.getActiveLaunchedBomb() : null;
-        if (activeLaunchedBomb) {
-            if (this.bombUtils && typeof this.bombUtils.cleanupBombResources === 'function') {
-                this.bombUtils.cleanupBombResources(activeLaunchedBomb);
-            } else {
-                console.warn("GameScene.shutdown: bombUtils or cleanupBombResources not available to clean active bomb.");
-                // Fallback: try to destroy directly if bombUtils is missing
-                if (activeLaunchedBomb.scene) {
-                    activeLaunchedBomb.destroy();
-                }
-            }
-            if (this.bombLauncher && typeof this.bombLauncher.clearActiveBomb === 'function') { 
-                 this.bombLauncher.clearActiveBomb(); // Also clear it from launcher state
-            } else {
-                 console.warn("GameScene.shutdown: bombLauncher.clearActiveBomb not available.");
-            }
-        }
-    }
+ 
 
     /**
      * Damages a block, potentially destroying it
@@ -2887,191 +2884,165 @@
 
     // Helper method to setup bomb counts based on level
     setupBombs() {
-        try {
-            console.log(`Setting up bombs for level ${this.currentLevel}`);
-            
-            // Reset bomb counts to make sure we don't keep any from previous levels
-            Object.keys(this.bombsRemaining).forEach(bombType => {
-                this.bombsRemaining[bombType] = 0;
-            });
-            
-            // If we have a level manager, use its bomb counts
-            if (this.levelManager) {
-                const levelBombs = this.levelManager.getBombCounts();
+            try {
+                console.log(`Setting up bombs for level ${this.currentLevel}`);
                 
-                if (levelBombs) {
-                    console.log(`Received bomb counts from level manager (BEFORE doubling):`, JSON.stringify(levelBombs));
+                // Reset bomb counts to make sure we don't keep any from previous levels
+                Object.keys(this.bombsRemaining).forEach(bombType => {
+                    this.bombsRemaining[bombType] = 0;
+                });
+                
+                if (this.levelManager) {
+                    const levelBombs = this.levelManager.getBombCounts(); // These should be the true counts from JSONs or LevelManager defaults
                     
-                    // Set bomb counts from level configuration and DOUBLE them for testing
-                    Object.keys(levelBombs).forEach(bombType => {
-                        // Skip undefined or invalid bomb types
-                        if (!bombType || typeof levelBombs[bombType] !== 'number') {
-                            return;
-                        }
+                    if (levelBombs) {
+                        console.log(`Received bomb counts from level manager:`, JSON.stringify(levelBombs));
                         
-                        // Store original count for debugging
-                        const originalCount = levelBombs[bombType];
-                        
-                        // Double the bomb count for testing
-                        this.bombsRemaining[bombType] = originalCount * 2;
-                        
-                        // Debug log for this specific bomb type
-                        console.log(`Doubled bomb count for ${bombType}: ${originalCount} → ${this.bombsRemaining[bombType]}`);
-                    });
+                        Object.keys(levelBombs).forEach(bombType => {
+                            // Ensure the bombType is valid and the count is a number
+                            if (this.BOMB_NAMES.hasOwnProperty(bombType) && typeof levelBombs[bombType] === 'number') {
+                                this.bombsRemaining[bombType] = levelBombs[bombType]; // Assign directly
+                                console.log(`Set bomb count for ${bombType}: ${this.bombsRemaining[bombType]}`);
+                            } else if (typeof levelBombs[bombType] !== 'number') {
+                                console.warn(`Invalid count for bomb type ${bombType}: ${levelBombs[bombType]}. Setting to 0.`);
+                                this.bombsRemaining[bombType] = 0;
+                            } else {
+                                 // console.warn(`Bomb type ${bombType} from level config not recognized. Skipping.`);
+                            }
+                        });
+                    } else {
+                        console.warn("Level manager returned no bomb counts! Using fallback setup.");
+                        this.setupFallbackBombs();
+                    }
                 } else {
-                    console.warn("Level manager returned no bomb counts!");
+                    console.warn("No level manager available! Using fallback setup.");
                     this.setupFallbackBombs();
                 }
-            } else {
-                console.warn("No level manager available!");
-                this.setupFallbackBombs();
-            }
-            
-            // TESTING: Add at least 1 of each bomb type regardless of level
-            Object.keys(this.BOMB_TYPES).forEach(bombTypeKey => {
-                const bombType = this.BOMB_TYPES[bombTypeKey];
-                if (this.bombsRemaining[bombType] < 1) {
-                    this.bombsRemaining[bombType] = 1;
-                    console.log(`TESTING: Added 1 ${bombType} for testing purposes`);
-                }
-            });
-            
-            // Always set driller bombs to 6 for testing purposes
-            this.bombsRemaining[this.BOMB_TYPES.DRILLER] = 6;
-            console.log(`Set driller bomb count to 6 for testing`);
-            
-            // Always set ricochet bombs to 4 for testing purposes
-            this.bombsRemaining[this.BOMB_TYPES.RICOCHET] = 4;
-            console.log(`Set ricochet bomb count to 4 for testing`);
-            
-            // Make sure we have the ricochet bombs for level 2+
-            if (this.currentLevel >= 2) {
-                // Ensure ricochet bombs are available
-                this.bombsRemaining[this.BOMB_TYPES.RICOCHET] = Math.max(this.bombsRemaining[this.BOMB_TYPES.RICOCHET], 4);
-                console.log(`Ensured ricochet bombs are available for level ${this.currentLevel}: ${this.bombsRemaining[this.BOMB_TYPES.RICOCHET]}`);
-            }
-            
-            // Check if there's a newly unlocked bomb to select
-            const unlockedBomb = this.levelManager ? this.levelManager.getUnlockedBombType() : null;
-            if (unlockedBomb && this.bombsRemaining[unlockedBomb] > 0) {
-                this.currentBombType = unlockedBomb;
-                console.log(`Selected newly unlocked bomb type: ${unlockedBomb}`);
-            } else {
-                // Otherwise select the first available bomb type
-                const availableBombType = Object.keys(this.bombsRemaining).find(type => 
-                    this.bombsRemaining[type] > 0
-                );
-                if (availableBombType) {
-                    this.currentBombType = availableBombType;
-                    console.log(`Selected first available bomb type: ${availableBombType}`);
+                
+                // Select initial bomb type
+                const unlockedBomb = this.levelManager ? this.levelManager.getUnlockedBombType() : null;
+                if (unlockedBomb && this.bombsRemaining[unlockedBomb] > 0) {
+                    this.currentBombType = unlockedBomb;
+                    console.log(`Selected newly unlocked bomb type: ${unlockedBomb}`);
                 } else {
-                    // Fallback to blast bomb if somehow no bombs are available
-                    this.currentBombType = this.BOMB_TYPES.BLAST;
-                    this.bombsRemaining[this.BOMB_TYPES.BLAST] = 6;  // Ensure at least some bombs
-                    console.warn(`No bomb types available! Falling back to blast bombs.`);
+                    // Find the first bomb type that has a count greater than 0
+                    const availableBombType = Object.keys(this.bombsRemaining).find(type => 
+                        this.bombsRemaining.hasOwnProperty(type) && this.bombsRemaining[type] > 0
+                    );
+                    if (availableBombType) {
+                        this.currentBombType = availableBombType;
+                        console.log(`Selected first available bomb type: ${availableBombType}`);
+                    } else {
+                        // If truly no bombs are configured (e.g., level design error or empty fallback)
+                        this.currentBombType = this.BOMB_TYPES.BLAST; // Default to Blast
+                        this.bombsRemaining[this.BOMB_TYPES.BLAST] = 1; // Give at least one to prevent soft lock
+                        console.warn(`No bomb types available from level config or fallback! Defaulting to 1 Blast Bomb.`);
+                    }
                 }
+                            
+                console.log(`Bomb setup complete for level ${this.currentLevel}:`, JSON.stringify(this.bombsRemaining));
+                console.log(`Starting with bomb type: ${this.currentBombType}`);
+                return true;
+            } catch (error) {
+                console.error("Error setting up bombs:", error);
+                this.setupFallbackBombs(); // Ensure fallback is called on error
+                return false;
             }
-                        
-            console.log(`Bomb setup complete for level ${this.currentLevel}:`, this.bombsRemaining);
-            console.log(`Starting with bomb type: ${this.currentBombType}`);
-            return true;
-        } catch (error) {
-            console.error("Error setting up bombs:", error);
-            // Implement fallback in case of error
-            this.setupFallbackBombs();
-            return false;
-        }
-    }
+    }    // Helper method to setup bomb counts based on level
+        
     
-    // Fallback method to set default bomb counts if level manager fails
-    setupFallbackBombs() {
-        console.log("Using fallback bomb setup for level", this.currentLevel);
-        
-        // Set fallback bomb counts based on level
-        switch (this.currentLevel) {
-            case 2:
-                // Level 2 adds the piercer and ricochet bombs
-                this.bombsRemaining = {
-                    [this.BOMB_TYPES.BLAST]: 6,     // Doubled from 3
-                    [this.BOMB_TYPES.PIERCER]: 4,   // Doubled from 2
-                    [this.BOMB_TYPES.CLUSTER]: 0,
-                    [this.BOMB_TYPES.STICKY]: 0,
-                    [this.BOMB_TYPES.SHATTERER]: 0,
-                    [this.BOMB_TYPES.DRILLER]: 6,   // Always 6 for testing
-                    [this.BOMB_TYPES.RICOCHET]: 4   // Doubled from 2
-                };
-                // Select piercer bomb by default
-                this.currentBombType = this.BOMB_TYPES.PIERCER;
-                break;
-            case 3:
-                // Level 3 adds the cluster bomb
-                this.bombsRemaining = {
-                    [this.BOMB_TYPES.BLAST]: 6,     // Doubled from 3
-                    [this.BOMB_TYPES.PIERCER]: 6,   // Doubled from 3
-                    [this.BOMB_TYPES.CLUSTER]: 4,   // Doubled from 2
-                    [this.BOMB_TYPES.STICKY]: 0,
-                    [this.BOMB_TYPES.SHATTERER]: 0,
-                    [this.BOMB_TYPES.DRILLER]: 6,   // Always 6 for testing
-                    [this.BOMB_TYPES.RICOCHET]: 4   // Doubled from 2
-                };
-                // Select cluster bomb by default
-                this.currentBombType = this.BOMB_TYPES.CLUSTER;
-                break;
-            case 4:
-                // Level 4 adds the sticky bomb
-                this.bombsRemaining = {
-                    [this.BOMB_TYPES.BLAST]: 6,     // Doubled from 3
-                    [this.BOMB_TYPES.PIERCER]: 6,   // Doubled from 3
-                    [this.BOMB_TYPES.CLUSTER]: 4,   // Doubled from 2
-                    [this.BOMB_TYPES.STICKY]: 4,    // Doubled from 2
-                    [this.BOMB_TYPES.SHATTERER]: 0,
-                    [this.BOMB_TYPES.DRILLER]: 6,   // Always 6 for testing
-                    [this.BOMB_TYPES.RICOCHET]: 4   // Doubled from 2
-                };
-                // Select sticky bomb by default
-                this.currentBombType = this.BOMB_TYPES.STICKY;
-                break;
-            case 5:
-                // Level 5 adds all bomb types
-                this.bombsRemaining = {
-                    [this.BOMB_TYPES.BLAST]: 6,     // Doubled from 3
-                    [this.BOMB_TYPES.PIERCER]: 6,   // Doubled from 3
-                    [this.BOMB_TYPES.CLUSTER]: 4,   // Doubled from 2
-                    [this.BOMB_TYPES.STICKY]: 4,    // Doubled from 2
-                    [this.BOMB_TYPES.SHATTERER]: 2, // Doubled from 1
-                    [this.BOMB_TYPES.DRILLER]: 6,   // Always 6 for testing
-                    [this.BOMB_TYPES.RICOCHET]: 4   // Doubled from 2
-                };
-                // Select shatterer bomb by default
-                this.currentBombType = this.BOMB_TYPES.SHATTERER;
-                break;
-            default:
-                // Level 1 (default)
-                this.bombsRemaining = {
-                    [this.BOMB_TYPES.BLAST]: 6,     // Doubled from 3
-                    [this.BOMB_TYPES.PIERCER]: 0,
-                    [this.BOMB_TYPES.CLUSTER]: 2,   // Doubled from 1
-                    [this.BOMB_TYPES.STICKY]: 10,   // Doubled from 5
-                    [this.BOMB_TYPES.SHATTERER]: 2, // Doubled from 1
-                    [this.BOMB_TYPES.DRILLER]: 6,   // Always 6 for testing
-                    [this.BOMB_TYPES.RICOCHET]: 4   // Added for testing
-                };
-                // Select blast bomb by default
-                this.currentBombType = this.BOMB_TYPES.BLAST;
-        }
-        
-        // TESTING: Add at least 1 of each bomb type regardless of level
-        Object.keys(this.BOMB_TYPES).forEach(bombTypeKey => {
-            const bombType = this.BOMB_TYPES[bombTypeKey];
-            if (this.bombsRemaining[bombType] < 1) {
-                this.bombsRemaining[bombType] = 1;
-                console.log(`TESTING: Added 1 ${bombType} for testing purposes in fallback setup`);
+    // Fallback method to set default bomb counts if level manager or JSON loading fails
+        setupFallbackBombs() {
+            console.log("Using fallback bomb setup for level", this.currentLevel);
+            
+            // Initialize all to 0 first
+            this.bombsRemaining = {
+                [this.BOMB_TYPES.BLAST]: 0, [this.BOMB_TYPES.PIERCER]: 0, [this.BOMB_TYPES.CLUSTER]: 0,
+                [this.BOMB_TYPES.STICKY]: 0, [this.BOMB_TYPES.SHATTERER]: 0, [this.BOMB_TYPES.DRILLER]: 0,
+                [this.BOMB_TYPES.RICOCHET]: 0,
+                [this.BOMB_TYPES.SHRAPNEL]: 0,
+                [this.BOMB_TYPES.MELTER]: 0
+            };
+    
+            // Set fallback bomb counts based on level, using intended non-testing values
+            // ALL levels will get 4 shrapnel and 3 cluster bombs for testing in this fallback.
+            this.bombsRemaining[this.BOMB_TYPES.SHRAPNEL] = 4;
+            this.bombsRemaining[this.BOMB_TYPES.CLUSTER] = 3;
+
+            switch (this.currentLevel) {
+                case 1:
+                    this.bombsRemaining[this.BOMB_TYPES.BLAST] = 3;
+                    this.bombsRemaining[this.BOMB_TYPES.STICKY] = 5;
+                    this.bombsRemaining[this.BOMB_TYPES.SHATTERER] = 1;
+                    this.bombsRemaining[this.BOMB_TYPES.DRILLER] = 3;
+                    this.bombsRemaining[this.BOMB_TYPES.MELTER] = 3; // Add Melter bombs for testing
+                    this.currentBombType = this.BOMB_TYPES.BLAST;
+                    break;
+                case 2:
+                    this.bombsRemaining[this.BOMB_TYPES.BLAST] = 3;
+                    this.bombsRemaining[this.BOMB_TYPES.PIERCER] = 2;
+                    this.bombsRemaining[this.BOMB_TYPES.DRILLER] = 3;
+                    this.bombsRemaining[this.BOMB_TYPES.RICOCHET] = 2;
+                    this.bombsRemaining[this.BOMB_TYPES.MELTER] = 3; // Add Melter bombs for testing
+                    this.currentBombType = this.BOMB_TYPES.PIERCER;
+                    break;
+                case 3:
+                    this.bombsRemaining[this.BOMB_TYPES.BLAST] = 3;
+                    this.bombsRemaining[this.BOMB_TYPES.PIERCER] = 3;
+                    this.bombsRemaining[this.BOMB_TYPES.DRILLER] = 3;
+                    this.bombsRemaining[this.BOMB_TYPES.RICOCHET] = 2;
+                    this.bombsRemaining[this.BOMB_TYPES.MELTER] = 3; // Add Melter bombs for testing
+                    this.currentBombType = this.BOMB_TYPES.CLUSTER;
+                    break;
+                case 4:
+                    this.bombsRemaining[this.BOMB_TYPES.BLAST] = 3;
+                    this.bombsRemaining[this.BOMB_TYPES.PIERCER] = 3;
+                    this.bombsRemaining[this.BOMB_TYPES.STICKY] = 2;
+                    this.bombsRemaining[this.BOMB_TYPES.DRILLER] = 3;
+                    this.bombsRemaining[this.BOMB_TYPES.RICOCHET] = 2;
+                    this.bombsRemaining[this.BOMB_TYPES.MELTER] = 3; // Add Melter bombs for testing
+                    this.currentBombType = this.BOMB_TYPES.STICKY;
+                    break;
+                case 5:
+                    this.bombsRemaining[this.BOMB_TYPES.BLAST] = 3;
+                    this.bombsRemaining[this.BOMB_TYPES.PIERCER] = 3;
+                    this.bombsRemaining[this.BOMB_TYPES.STICKY] = 2;
+                    this.bombsRemaining[this.BOMB_TYPES.SHATTERER] = 1;
+                    this.bombsRemaining[this.BOMB_TYPES.DRILLER] = 3;
+                    this.bombsRemaining[this.BOMB_TYPES.RICOCHET] = 2;
+                    this.bombsRemaining[this.BOMB_TYPES.MELTER] = 3; // Add Melter bombs
+                    this.currentBombType = this.BOMB_TYPES.SHRAPNEL; // Default to Shrapnel
+                    break;
+                case 6:
+                    // Level specifically focused on Shrapnel bombs
+                    this.bombsRemaining[this.BOMB_TYPES.BLAST] = 2;
+                    // this.bombsRemaining[this.BOMB_TYPES.SHRAPNEL] = 5; // Already set to 4 above
+                    this.bombsRemaining[this.BOMB_TYPES.STICKY] = 2;
+                    this.bombsRemaining[this.BOMB_TYPES.DRILLER] = 1;
+                    this.bombsRemaining[this.BOMB_TYPES.MELTER] = 3; // Add Melter bombs for testing
+                    this.currentBombType = this.BOMB_TYPES.SHRAPNEL;
+                    break;
+                    
+                case 7:
+                    // Level specifically focused on Melter bombs
+                    this.bombsRemaining[this.BOMB_TYPES.BLAST] = 2;
+                    this.bombsRemaining[this.BOMB_TYPES.MELTER] = 5; // Give player plenty of Melter bombs
+                    this.bombsRemaining[this.BOMB_TYPES.STICKY] = 2;
+                    this.bombsRemaining[this.BOMB_TYPES.PIERCER] = 1;
+                    this.currentBombType = this.BOMB_TYPES.MELTER; // Default to Melter
+                    break;
+                default: // For any other levels not explicitly defined, use Level 1's fallback values for non-testing bombs
+                    this.bombsRemaining[this.BOMB_TYPES.BLAST] = 3;
+                    this.bombsRemaining[this.BOMB_TYPES.STICKY] = 5;
+                    this.bombsRemaining[this.BOMB_TYPES.SHATTERER] = 1;
+                    this.bombsRemaining[this.BOMB_TYPES.DRILLER] = 3;
+                    this.bombsRemaining[this.BOMB_TYPES.MELTER] = 3; // Add Melter bombs for testing
+                    this.currentBombType = this.BOMB_TYPES.BLAST;
             }
-        });
-        
-        // Log bomb setup
-        console.log("Fallback bomb setup complete:", this.bombsRemaining);
-    }
+            
+            // Log bomb setup
+            console.log("Fallback bomb setup complete:", JSON.stringify(this.bombsRemaining));
+        }
 
     // Debugging function to verify if assets are loaded properly
     verifyAssets() {
@@ -3113,8 +3084,86 @@
         console.log('-------------------------------');
     }
 
-   
-  
+    // Create placeholder graphics for bomb textures
+    createBombPlaceholders() {
+        console.log('Creating placeholder graphics for bombs');
+        
+        // Create a placeholder for the Shrapnel bomb if it doesn't exist
+        if (!this.textures.exists('shrapnel_bomb')) {
+            console.log('Creating placeholder for shrapnel_bomb');
+            
+            // Create a graphics object for the Shrapnel bomb
+            const graphics = this.make.graphics();
+            
+            // Draw the bomb body (circle)
+            graphics.fillStyle(0xFF6600); // Orange color
+            graphics.fillCircle(30, 30, 30);
+            
+            // Add shrapnel-like lines radiating outward
+            graphics.lineStyle(2, 0xFFCC00); // Yellow lines
+            for (let i = 0; i < 10; i++) {
+                const angle = (i / 10) * Math.PI * 2;
+                const innerX = 30 + Math.cos(angle) * 15;
+                const innerY = 30 + Math.sin(angle) * 15;
+                const outerX = 30 + Math.cos(angle) * 35;
+                const outerY = 30 + Math.sin(angle) * 35;
+                graphics.beginPath();
+                graphics.moveTo(innerX, innerY);
+                graphics.lineTo(outerX, outerY);
+                graphics.strokePath();
+            }
+            
+            // Add inner circle to represent the explosives
+            graphics.fillStyle(0xFF3300); // Darker orange
+            graphics.fillCircle(30, 30, 15);
+            
+            // Add a highlight effect
+            graphics.fillStyle(0xFFFF99, 0.5); // Light yellow with transparency
+            graphics.fillCircle(23, 23, 8);
+            
+            // Generate texture from the graphics
+            graphics.generateTexture('shrapnel_bomb', 60, 60);
+            graphics.destroy();
+            
+            console.log('Placeholder for shrapnel_bomb created successfully');
+        }
+        
+        // Check if other bomb placeholders need to be created
+        const bombTypes = [
+            { key: 'blast_bomb', color: 0xFF0000 },        // Red
+            { key: 'piercer_bomb', color: 0x0099FF },      // Light blue
+            { key: 'cluster_bomb', color: 0xFFFF00 },      // Yellow
+            { key: 'sticky_bomb', color: 0xFF00FF },       // Pink
+            { key: 'shatterer_bomb', color: 0xCC3333 },    // Dark red
+            { key: 'driller_bomb', color: 0xCC6600 },      // Brown
+            { key: 'ricochet_bomb', color: 0x00FFFF }      // Cyan
+        ];
+        
+        // Create simple placeholders for any other missing bomb textures
+        bombTypes.forEach(bombType => {
+            if (!this.textures.exists(bombType.key)) {
+                console.log(`Creating placeholder for ${bombType.key}`);
+                
+                const graphics = this.make.graphics();
+                
+                // Draw basic bomb circle
+                graphics.fillStyle(bombType.color);
+                graphics.fillCircle(30, 30, 30);
+                
+                // Add highlight
+                graphics.fillStyle(0xFFFFFF, 0.4);
+                graphics.fillCircle(20, 20, 10);
+                
+                // Generate texture
+                graphics.generateTexture(bombType.key, 60, 60);
+                graphics.destroy();
+                
+                console.log(`Placeholder for ${bombType.key} created successfully`);
+            }
+        });
+        
+        console.log('Bomb placeholder creation completed');
+    }
 
     // Setup the game world and physics
     setupGame() {
@@ -3139,6 +3188,9 @@
         
         // Create game objects
         this.createBackground();
+        
+        // Create bomb placeholders using Phaser Graphics
+        this.createBombPlaceholders();
         
         // Create the completion veil based on chibi image shape
         this.createCompletionVeil();
@@ -3237,51 +3289,49 @@
     // Helper method to fire the bomb based on pointer position
     fireBomb(pointer) {
         if (!pointer || pointer.x === undefined || pointer.y === undefined) {
-            console.warn("Invalid pointer in fireBomb method");
+            console.warn("fireBomb called with invalid pointer data:", pointer);
+            if (this.bombInputHandler) {
+                this.bombInputHandler.resetAimState(); // Reset aiming state in handler
+            }
             return;
         }
 
-        try {
-            // Use BombInputHandler if available
+        // Ensure we have a bomb and it's not already launched
+        if (!this.bomb || this.bomb.isLaunched || !this.bomb.isAtSlingshot) {
+            console.log("No bomb ready or bomb already launched.");
             if (this.bombInputHandler) {
-                return this.bombInputHandler.fireBomb(pointer);
+                this.bombInputHandler.resetAimState(); // Reset aiming state in handler
+            }
+            return;
+        }
+        
+        try {
+            // Calculate force
+            let dx = this.BOW_X - pointer.x;
+            let dy = this.BOW_Y - pointer.y;
+            let distance = Math.sqrt(dx * dx + dy * dy);
+            
+            // Limit drag distance
+            if (distance > this.MAX_DRAG_DISTANCE) {
+                const ratio = this.MAX_DRAG_DISTANCE / distance;
+                dx *= ratio;
+                dy *= ratio;
+                distance = this.MAX_DRAG_DISTANCE;
             }
             
-            // Fallback to original implementation if BombInputHandler isn't available
-            console.warn("BombInputHandler not available, using legacy firing method");
-            
-            // Calculate angle and distance from slingshot
-            const dx = this.BOW_X - pointer.x;
-            const dy = this.BOW_Y - 30 - pointer.y;
-            
-            // Minimum drag distance required to fire (prevents accidental taps)
-            const minDragDistance = 20;
-            const distance = Math.sqrt(dx * dx + dy * dy);
-            
-            if (distance < minDragDistance) {
-                // Too small a drag, reset the bomb position
-                this.resetBomb();
-                return;
-            }
-            
-            // Calculate velocity based on drag distance and angle
-            const normalizedDistance = Math.min(distance, this.MAX_DRAG_DISTANCE) / this.MAX_DRAG_DISTANCE;
-            const forceX = dx * this.SHOT_POWER;
-            const forceY = dy * this.SHOT_POWER;
-            
-            // Clear any existing elastic line
-            if (this.elasticLine) {
-                this.elasticLine.clear();
-            }
-            
-            // Make the bomb dynamic and apply force
-            this.bomb.setStatic(false);
-            this.bomb.setFixedRotation(false);
-            this.bomb.setFrictionAir(0.005); // Very low air friction
-            this.bomb.setAngularVelocity(0.1); // Slight rotation
+            // Calculate force based on drag distance
+            const forceMagnitude = distance * this.SHOT_POWER;
+            const forceX = dx * forceMagnitude;
+            const forceY = dy * forceMagnitude;
             
             // Apply force to the bomb
-            this.bomb.applyForce({ x: forceX, y: forceY });
+            this.matter.body.setStatic(this.bomb.body, false);
+            this.matter.applyForce(this.bomb, { x: this.bomb.x, y: this.bomb.y }, { x: forceX, y: forceY });
+            
+            // Play launch sound
+            if (this.audioManager) {
+                this.audioManager.playSound('launch', { volume: 0.5 });
+            }
             
             // IMPORTANT: Mark the bomb as launched and no longer at slingshot
             this.bomb.isLaunched = true;
@@ -3291,11 +3341,11 @@
             this.bombState.active = true;
             this.bombState.lastBombFired = Date.now();
             
-            // Decrement shot count
-            this.shotsRemaining--;
+            // Decrement shot count - REMOVED for unlimited shots
+            // this.shotsRemaining--; 
             
             // Update UI to show shots remaining
-            this.events.emit('updateShots', this.shotsRemaining);
+            this.events.emit('updateShots', this.shotsRemaining); // Still emit to show "Unlimited" or similar
             
             // Clear the trajectory graphics
             this.clearTrajectory();
@@ -3614,53 +3664,59 @@
 
     // Apply any game settings
     applyGameSettings(delta) {
-        // Make sure we have the bombState object initialized
-        if (!this.bombState) {
-            this.bombState = {
-                active: false,
-                lastBombFired: 0,
-                lastResetTime: Date.now(),
-                pendingReset: null,
-                maxIdleTime: 20000,  // 20 seconds max idle time for active bombs
-                autoResetTimer: null
-            };
-        }
-
-        // If BombLauncher is busy launching a bomb, do not interfere.
-        if (this.bombLauncher && this.bombLauncher.isLaunching) {
+        // Ensure that GameStateManager is initialized
+        if (!this.gameStateManager) {
+            console.warn("[GameScene.applyGameSettings] GameStateManager not initialized. Skipping further logic.");
             return;
         }
-        
-        // Make sure we have a bombLauncher - COMMENTING OUT REDUNDANT CREATION
-        /*
-        if (!this.bombLauncher && this.matter) {
-            try {
-                console.log("Creating BombLauncher in applyGameSettings");
-                this.bombLauncher = new BombLauncher(this);
-            } catch (e) {
-                console.error("Failed to create BombLauncher:", e);
-            }
-        }
-        */
-        
-        // Create BombUtils if needed
-        if (!this.bombUtils && this.matter) {
-            try {
-                console.log("Creating BombUtils in applyGameSettings");
-                this.bombUtils = new BombUtils(this);
-            } catch (e) {
-                console.error("Failed to create BombUtils:", e);
-            }
-        }
-        
-        // Make sure we always have a bomb active if we have shots remaining and no active bomb
-        const noBombExists = !this.bomb || !this.bomb.scene;
-        const noBombInLauncher = !this.bombLauncher || !this.bombLauncher.bomb || !this.bombLauncher.bomb.scene;
-        
-        // Check BombLauncher's state as well
-        const bombLauncherReadyForNewBomb = this.bombLauncher ? !this.bombLauncher.bombState.bombCreationPending : true;
 
-        if (noBombExists && noBombInLauncher && this.shotsRemaining > 0 && !this.isCreatingNewBomb && bombLauncherReadyForNewBomb) {
+        // ADDED: If the bomb launcher is currently aiming, don't interfere.
+        if (this.bombLauncher && this.bombLauncher.isAiming) {
+            // console.log("[GameScene.applyGameSettings] Currently aiming, skipping bomb management.");
+            return;
+        }
+
+        // Only proceed if the GameScene is fully initialized
+        if (!this.isFullyInitialized) {
+            // console.log("[GameScene.applyGameSettings] GameScene not fully initialized. Skipping."); // Optional: for debugging
+            return;
+        }
+
+        // Check if the current bomb has gone out of bounds
+        if (this.bombLauncher && typeof this.bombLauncher.checkForMissedBombs === 'function') {
+            this.bombLauncher.checkForMissedBombs();
+        }
+        
+        // Auto-reset bomb if it has been inactive for too long (e.g., stuck, missed)
+        const currentTime = Date.now();
+        const bombInactiveDuration = 8000; // 8 seconds
+        
+        if (this.bombState.active && (currentTime - this.bombState.lastBombFired > bombInactiveDuration)) {
+            console.log("Bomb has been active for too long, resetting.");
+            this.resetFailedBomb(); // Use resetFailedBomb to handle fizzle etc.
+            // If resetFailedBomb determined it's game over, it will handle it.
+            // Otherwise, bombState.lastResetTime will be updated if a new bomb is made.
+            return; // Return early
+        }
+        
+        // Check if a new bomb needs to be created (e.g., after one explodes or goes off-screen)
+        const noBombExists = !this.bomb || !this.bomb.scene; // Check if bomb is destroyed
+        const noBombInLauncher = !this.bombLauncher || !this.bombLauncher.bomb || !this.bombLauncher.bomb.scene;
+        const bombLauncherReadyForNewBomb = this.bombLauncher && !this.bombLauncher.isBombActive() && !this.bombLauncher.isAiming && !this.isCreatingNewBomb;
+        const canCreateBombLogic = (currentTime - this.bombState.lastResetTime > 1000); // Cooldown
+
+        if (noBombExists && noBombInLauncher && !this.isCreatingNewBomb && bombLauncherReadyForNewBomb && canCreateBombLogic) {
+            if (!this.isAnyBombAvailable()) {
+                // RE-GUARD THE CHECKGAMEOVER CALL
+                if (this.isFullyInitialized) { 
+                    console.log("applyGameSettings: No bombs available, checking for level completion/game over.");
+                    this.checkLevelCompletion(); // CALL THIS FIRST
+                } else {
+                    console.log("applyGameSettings: No bombs available, but GameScene not fully initialized. Skipping checks.");
+                }
+                return;
+            }
+
             console.log("No bomb exists, creating one in applyGameSettings");
             this.isCreatingNewBomb = true;
             
@@ -3689,30 +3745,6 @@
                 this.isCreatingNewBomb = false;
             });
         }
-        
-        // Apply physics settings for any active bombs
-        if (this.bomb && this.bomb.scene) {
-            // If the bomb is a ricochet bomb, apply special physics
-            if ((this.bomb.bombType === 'ricochet_bomb' || this.bomb.bombType === 'ricochet') && 
-                this.bomb.body && !this.bomb.hasExploded) {
-                
-                if (!this.bomb.ricochetPropertiesApplied) {
-                    console.log("Ricochet bomb properties applied:");
-                    
-                    // Add special physics properties for ricochet bombs
-                    this.bomb.setBounce(0.95);  // High bounciness
-                    this.bomb.setFriction(0.005);  // Low friction
-                    if (this.bomb.body) {
-                        this.bomb.body.frictionAir = 0.0005;  // Low air resistance
-                    }
-                    
-                    // Mark that we've applied these properties
-                    this.bomb.ricochetPropertiesApplied = true;
-                    
-                    console.log(`restitution: ${this.bomb.body.restitution}, friction: ${this.bomb.body.friction}, density: ${this.bomb.body.density}, frictionAir: ${this.bomb.body.frictionAir}`);
-                }
-            }
-        }
     }
 
     // Handler for bomb selection requests from UIScene
@@ -3736,49 +3768,32 @@
             console.warn(`[GameScene.handleGoToNextLevel WARN] Instance ${this.scene.key}_${this._id} for level ${this.currentLevel} is ALREADY transitioning. Aborting duplicate call.`);
             return;
         }
-        this.isTransitioningLevel = true; // Set it and never unset for this instance
+        this.isTransitioningLevel = true; 
         console.log(`[GameScene.handleGoToNextLevel INFO] Instance ${this.scene.key}_${this._id} for level ${this.currentLevel} is NOW transitioning.`);
 
-        // Aggressively disable further event processing for this instance
-        // if (this.events) {  // REMOVE BLOCK START
-        //     console.log(`[GameScene.handleGoToNextLevel INFO] Instance ${this.scene.key}_${this._id} for level ${this.currentLevel} - Nullifying this.events.`);
-        //     this.events.destroy(); // Destroy the event emitter
-        //     this.events = null;    // Nullify the reference
-        // } // REMOVE BLOCK END
-
         const previousLevel = this.currentLevel;
-        this.currentLevel++; // currentLevel is now target level
-        console.log(`[GameScene.handleGoToNextLevel] Level incremented. Old: ${previousLevel}, New Target: ${this.currentLevel}`);
-
-        // Stop UIScene if it's active
+        
+        // Stop background music before transitioning
+        if (this.audioManager && this.audioManager.bgMusic) {
+            try { this.audioManager.bgMusic.stop(); } catch (e) { console.warn('Error stopping BG music', e);}
+        }
+        
+        // The UIScene will handle the transition to CGScene which will then go to StoryMapScene
+        // This method now does less because most of the flow is handled by the UI's Next Level button
         if (this.scene.isActive('UIScene')) {
-            console.log(`[GameScene.handleGoToNextLevel] Attempting to stop UIScene. Target Level: ${this.currentLevel}`);
-            try {
-                this.scene.stop('UIScene');
-                console.log(`[GameScene.handleGoToNextLevel] UIScene stop command issued. Is UIScene active now? ${this.scene.isActive('UIScene')}`);
-            } catch (e) {
-                console.error(`[GameScene.handleGoToNextLevel] ERROR stopping UIScene:`, e);
-            }
+            console.log('[GameScene.handleGoToNextLevel] UIScene is active, it will handle the transition to CGScene.');
+        } else {
+            console.warn('[GameScene.handleGoToNextLevel] UIScene is not active! Manually transitioning to CGScene.');
+            
+            // If UIScene is not active for some reason, transition directly to CGScene
+            this.scene.stop('UIScene');
+            this.scene.start('CGScene', { 
+                levelId: this.currentLevel, 
+                starsEarned: 1, // Default to 1 star if not provided by UIScene
+                score: this.score,
+                revealPercentage: this.revealPercentage
+            });
         }
-
-        // Stop GameScene itself
-        console.log(`[GameScene.handleGoToNextLevel] Attempting to stop GameScene (Instance for level ${previousLevel}). Target Level: ${this.currentLevel}`);
-        try {
-            this.scene.stop('GameScene'); // This stops the current scene instance
-            console.log(`[GameScene.handleGoToNextLevel] GameScene stop command issued for self (level ${previousLevel}).`);
-        } catch (e) {
-            console.error(`[GameScene.handleGoToNextLevel] ERROR stopping self (GameScene for level ${previousLevel}):`, e);
-        }
-
-        // Start LoadingScene for the new level
-        console.log(`[GameScene.handleGoToNextLevel] Attempting to start LoadingScene with levelNumber: ${this.currentLevel}.`);
-        try {
-            this.scene.start('LoadingScene', { levelNumber: this.currentLevel });
-            console.log(`[GameScene.handleGoToNextLevel] LoadingScene start command issued successfully for level ${this.currentLevel}.`);
-        } catch (e) {
-            console.error(`[GameScene.handleGoToNextLevel] ERROR starting LoadingScene for level ${this.currentLevel}:`, e);
-        }
-        console.log(`[GameScene.handleGoToNextLevel EXITED] Target Level: ${this.currentLevel}, From Level: ${previousLevel}`);
     }
 
     shutdown() {

@@ -15,15 +15,16 @@ class LevelManager {
             backgroundImageKey: 'background1', // Will be dynamically set to background{level}
             targetPercentage: 85,
             blockSize: 40, // Default block size, can be overridden by level_config.json
-            maxShots: 20, // Default maximum shots
             bombsAvailable: { // Default bombs if not specified in level_config.json OR available_bombs.json
                 blast_bomb: 3,
                 piercer_bomb: 0,
-                cluster_bomb: 1,
+                cluster_bomb: 3, // Ensure cluster bomb is in base defaults for testing
                 sticky_bomb: 5,
                 shatterer_bomb: 1,
-                driller_bomb: 3,
-                ricochet_bomb: 0
+                driller_bomb: 0,
+                ricochet_bomb: 0,
+                shrapnel_bomb: 4, // Ensure shrapnel bomb is in base defaults for testing
+                melter_bomb: 3 // Ensure melter bomb is in base defaults for testing
             },
             unlockedBomb: null,
             blockLayoutPath: 'block_layout.json', // Default relative path within level folder
@@ -107,7 +108,6 @@ class LevelManager {
                         this.levelData[level].backgroundImageKey = loadedConfig.backgroundImageKey || `background${level}`;
                         this.levelData[level].targetPercentage = loadedConfig.targetPercentage || this.defaultBaseLevelConfig.targetPercentage;
                         this.levelData[level].blockSize = loadedConfig.blockSize || this.defaultBaseLevelConfig.blockSize;
-                        this.levelData[level].maxShots = loadedConfig.maxShots || this.defaultBaseLevelConfig.maxShots;
                         this.levelData[level].unlockedBomb = loadedConfig.unlockedBomb || this.defaultBaseLevelConfig.unlockedBomb;
                         this.levelData[level].blockLayoutPath = loadedConfig.blockLayoutPath || this.defaultBaseLevelConfig.blockLayoutPath;
                         this.levelData[level].availableBombsPath = loadedConfig.availableBombsPath || this.defaultBaseLevelConfig.availableBombsPath;
@@ -142,6 +142,15 @@ class LevelManager {
                                 console.log(`Level ${level}: Used default hardcoded bomb counts.`);
                             }
                         }
+                        
+                        // Ensure Shrapnel, Cluster and Melter bomb counts for testing
+                        if (this.levelData[level].parsedAvailableBombs) {
+                            this.levelData[level].parsedAvailableBombs.shrapnel_bomb = 4;
+                            this.levelData[level].parsedAvailableBombs.cluster_bomb = 3;
+                            this.levelData[level].parsedAvailableBombs.melter_bomb = 3;
+                        } else {
+                            this.levelData[level].parsedAvailableBombs = { shrapnel_bomb: 4, cluster_bomb: 3, melter_bomb: 3 };
+                        }
 
                         // Load block_layout.json
                         const blockLayoutRelativePath = this.levelData[level].blockLayoutPath; // e.g. "block_layout.json"
@@ -172,11 +181,11 @@ class LevelManager {
                         console.log(`Loaded configuration for level ${level}:`, this.levelData[level]);
                     } else {
                         console.warn(`No configuration found for level ${level} at ${configPath}, creating from defaults.`);
-                        this.levelData[level] = this.createDefaultLevelData(level);
+                        this.levelData[level] = this.createDefaultLevelData(level); // This will include shrapnel_bomb: 4 and cluster_bomb: 3
                     }
                 } catch (levelError) {
                     console.warn(`Error loading level ${level} configuration: ${levelError.message}. Creating from defaults.`);
-                    this.levelData[level] = this.createDefaultLevelData(level);
+                    this.levelData[level] = this.createDefaultLevelData(level); // This will include shrapnel_bomb: 4 and cluster_bomb: 3
                 }
             }
             
@@ -185,7 +194,21 @@ class LevelManager {
         } catch (error) {
             console.error("Error loading level data:", error);
             // Fallback to default data
-            this.levelData = this.defaultLevelData;
+            this.levelData = this.defaultLevelData; // Ensure defaultLevelData also has shrapnel_bomb: 4 and cluster_bomb: 3
+            // Make sure all levels in defaultLevelData also get the shrapnel, cluster, and melter bombs
+            Object.keys(this.levelData).forEach(lvl => {
+                if (this.levelData[lvl] && this.levelData[lvl].bombsAvailable) {
+                    this.levelData[lvl].bombsAvailable.shrapnel_bomb = 4;
+                    this.levelData[lvl].bombsAvailable.cluster_bomb = 3;
+                    this.levelData[lvl].bombsAvailable.melter_bomb = 3;
+                } else if (this.levelData[lvl]) {
+                    this.levelData[lvl].bombsAvailable = { 
+                        shrapnel_bomb: 4, 
+                        cluster_bomb: 3,
+                        melter_bomb: 3
+                    };
+                }
+            });
             return false;
         }
     }
@@ -201,26 +224,41 @@ class LevelManager {
         defaultData.chibiImageKey = `chibi_girl${level}`;
         defaultData.victoryBackgroundKey = `victoryBackground${level}`;
         defaultData.backgroundImageKey = `background${level}`;
-        defaultData.maxShots = this.defaultBaseLevelConfig.maxShots;
         
+        // Ensure bombsAvailable exists and add/set shrapnel_bomb and cluster_bomb
+        if (!defaultData.bombsAvailable) {
+            defaultData.bombsAvailable = {};
+        }
+        defaultData.bombsAvailable.shrapnel_bomb = 4; // Ensure shrapnel bomb for testing
+        defaultData.bombsAvailable.cluster_bomb = 3; // Ensure cluster bomb for testing
+        defaultData.bombsAvailable.melter_bomb = 3; // Ensure melter bomb for testing
+
         // Example of how bombs might change per level by default if not specified
         if (level === 1) {
-            defaultData.bombsAvailable = { blast_bomb: 3, cluster_bomb: 1, sticky_bomb: 5, shatterer_bomb: 1, driller_bomb: 3, ricochet_bomb: 0 };
+            defaultData.bombsAvailable = { ...defaultData.bombsAvailable, blast_bomb: 3, sticky_bomb: 5, shatterer_bomb: 1, driller_bomb: 0, ricochet_bomb: 0, piercer_bomb: 0 };
         } else if (level === 2) {
-            defaultData.bombsAvailable = { blast_bomb: 3, piercer_bomb: 2, driller_bomb: 3, ricochet_bomb: 2, cluster_bomb: 0, sticky_bomb: 0, shatterer_bomb: 0 };
+            defaultData.bombsAvailable = { ...defaultData.bombsAvailable, blast_bomb: 3, piercer_bomb: 2, driller_bomb: 0, ricochet_bomb: 2, sticky_bomb: 0, shatterer_bomb: 0 };
             defaultData.unlockedBomb = 'piercer_bomb';
         } else if (level >= 3 && level <= 5) { // Generic for 3-5
-            defaultData.bombsAvailable = { blast_bomb: 2, piercer_bomb: 2, cluster_bomb: 2, sticky_bomb: 2, shatterer_bomb: 1, driller_bomb: 2, ricochet_bomb: 1 };
-            if (level === 3) defaultData.unlockedBomb = 'cluster_bomb';
+            defaultData.bombsAvailable = { ...defaultData.bombsAvailable, blast_bomb: 2, piercer_bomb: 2, sticky_bomb: 2, shatterer_bomb: 1, driller_bomb: 0, ricochet_bomb: 1 };
+            if (level === 3) defaultData.unlockedBomb = 'cluster_bomb'; // Cluster bomb is unlocked here
             if (level === 4) defaultData.unlockedBomb = 'sticky_bomb';
             if (level === 5) defaultData.unlockedBomb = 'shatterer_bomb';
         } else { // For levels > 5, provide a generic set or scale them
-             defaultData.bombsAvailable = { blast_bomb: 2, piercer_bomb: 2, cluster_bomb: 2, sticky_bomb: 2, shatterer_bomb: 2, driller_bomb: 2, ricochet_bomb: 2 };
+             defaultData.bombsAvailable = { ...defaultData.bombsAvailable, blast_bomb: 2, piercer_bomb: 2, sticky_bomb: 2, shatterer_bomb: 2, driller_bomb: 0, ricochet_bomb: 2 };
         }
         
+        // Ensure shrapnel_bomb, cluster_bomb, and melter_bomb are set to desired testing values again after specific level logic.
+        defaultData.bombsAvailable.shrapnel_bomb = 4;
+        defaultData.bombsAvailable.cluster_bomb = 3;
+        defaultData.bombsAvailable.melter_bomb = 3;
+
         // Default paths for block layout and available bombs JSON files within the level's asset folder
         defaultData.blockLayoutPath = `block_layout.json`;
         defaultData.availableBombsPath = `available_bombs.json`;
+
+        // Ensure parsedAvailableBombs also reflects this for consistency, as getBombCounts might use it.
+        defaultData.parsedAvailableBombs = { ...defaultData.bombsAvailable };
 
         console.log(`Created default data for level ${level}:`, defaultData);
         return defaultData;
@@ -236,7 +274,8 @@ class LevelManager {
             sticky_bomb: Math.max(0, level - 2), // Start at level 3
             shatterer_bomb: Math.max(0, level - 3), // Start at level 4
             driller_bomb: Math.max(0, level - 3), // Start at level 4
-            ricochet_bomb: level >= 2 ? 2 : 0 // Available from level 2
+            ricochet_bomb: level >= 2 ? 2 : 0, // Available from level 2
+            melter_bomb: 3 // Always have 3 Melter bombs for testing
         };
     }
     
@@ -245,9 +284,13 @@ class LevelManager {
         if (this.levelData && this.levelData[this.currentLevel]) {
             return this.levelData[this.currentLevel];
         }
-        console.warn(`LevelManager: No specific data found for level ${this.currentLevel}. Falling back to default for level 1.`);
-        // Fallback to default data for level 1 if current level data is missing
-        return this.defaultLevelData[1] || this.createDefaultLevelData(1);
+        console.warn(`LevelManager: No specific data found for level ${this.currentLevel}. Falling back to generating default data for level ${this.currentLevel}.`);
+        // Fallback to default data for the CURRENT level if its specific data is missing
+        // Ensure this.defaultLevelData has an entry for this.currentLevel, or generate it.
+        if (!this.defaultLevelData[this.currentLevel]) {
+            this.defaultLevelData[this.currentLevel] = this.createDefaultLevelData(this.currentLevel);
+        }
+        return this.defaultLevelData[this.currentLevel];
     }
     
     // Move to the next level
@@ -282,15 +325,25 @@ class LevelManager {
     
     // Get bomb counts for the current level
     getBombCounts() {
-        const levelData = this.getCurrentLevelData();
-        // Use parsedAvailableBombs if available, otherwise fallback
-        const bombsToUse = levelData.parsedAvailableBombs || levelData.bombsAvailable || this.defaultLevelData[1].parsedAvailableBombs || this.defaultLevelData[1].bombsAvailable;
-        console.log(`Getting bomb counts for level ${this.currentLevel}:`, bombsToUse);
+        const levelData = this.getCurrentLevelData(); // This will now correctly fallback to current level's default if needed
         
-        if (!bombsToUse) {
-            console.warn(`No bomb data available for level ${this.currentLevel}, using hardcoded defaults from defaultBaseLevelConfig`);
-            return { ...this.defaultBaseLevelConfig.bombsAvailable };
+        // Prioritize parsedAvailableBombs, then bombsAvailable from the specific levelData.
+        // Fallback to defaultBaseLevelConfig as a last resort if levelData itself is minimal.
+        let bombsToUse = null;
+        if (levelData) {
+            if (levelData.parsedAvailableBombs) {
+                bombsToUse = levelData.parsedAvailableBombs;
+            } else if (levelData.bombsAvailable) {
+                bombsToUse = levelData.bombsAvailable;
+            }
         }
+
+        if (!bombsToUse) {
+            console.warn(`No bomb data found in levelData for level ${this.currentLevel} (parsedAvailableBombs or bombsAvailable). Using hardcoded defaults from defaultBaseLevelConfig.`);
+            bombsToUse = { ...this.defaultBaseLevelConfig.bombsAvailable };
+        }
+        
+        console.log(`Getting bomb counts for level ${this.currentLevel}:`, JSON.parse(JSON.stringify(bombsToUse))); // Deep copy for logging to avoid circular refs
         
         return bombsToUse;
     }
@@ -377,12 +430,6 @@ class LevelManager {
     getBlockSize() {
         const levelData = this.getCurrentLevelData();
         return levelData.blockSize || this.defaultBaseLevelConfig.blockSize;
-    }
-
-    // Get max shots for the current level
-    getMaxShots() {
-        const levelData = this.getCurrentLevelData();
-        return levelData.maxShots || this.defaultBaseLevelConfig.maxShots;
     }
 }
 

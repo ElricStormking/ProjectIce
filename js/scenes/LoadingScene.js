@@ -7,7 +7,9 @@ class LoadingScene extends Phaser.Scene {
     init(data) {
         // Get level number from scene data
         this.levelNumber = data.levelNumber || 1;
-        console.log(`LoadingScene: Initializing for level ${this.levelNumber}. Received data:`, data);
+        // Get next scene from data if provided
+        this.nextScene = data.nextScene || null;
+        console.log(`LoadingScene: Initializing for level ${this.levelNumber}. Next scene: ${this.nextScene || 'Default (GameScene)'}. Received data:`, data);
     }
 
     createSharedProceduralAssets() {
@@ -35,6 +37,7 @@ class LoadingScene extends Phaser.Scene {
         slingshot.fillRect(-20, 0, 50, 10); // Top part
         slingshot.generateTexture('slingshot', 50, 60);
         slingshot.clear();
+       
         
         // Note: Bomb texture generation is handled by createBombTextures()
         // We will not duplicate that here from BootScene's createShapes()
@@ -233,6 +236,10 @@ class LoadingScene extends Phaser.Scene {
             this.load.image('mini_particle', 'assets/images/mini_particle.png');
             this.load.image('sticky_particle', 'assets/images/sticky_particle.png');
             this.load.image('impact_particle', 'assets/images/impact_particle.png');
+            this.load.image('magic_arrow_placeholder', 'assets/images/magic_arrow_placeholder.png');
+            this.load.image('upper_bow_part', 'assets/images/upper_bow_part.png');
+            this.load.image('lower_bow_part', 'assets/images/lower_bow_part.png');
+        
             
             // Generate bomb textures programmatically instead of loading images
             // this.createBombTextures(); // REMOVED: Redundant call, already called above
@@ -600,16 +607,14 @@ class LoadingScene extends Phaser.Scene {
             this.scene.stop('GameScene');
         }
         
-        // UIScene is no longer needed since we're using UISystem
-        // No need to check for or stop UIScene
-        
         // Add a larger delay before starting the next scene to ensure everything is cleaned up
         this.time.delayedCall(300, () => {
-            console.log("Starting GameScene after delay");
-            // Pass the level number to the GameScene
-            this.scene.start('GameScene', { levelNumber: this.levelNumber });
+            // Get the next scene from the data or default to GameScene
+            const nextSceneKey = this.nextScene || 'GameScene';
+            console.log(`Starting ${nextSceneKey} after delay with levelNumber: ${this.levelNumber}`);
             
-            // No need to launch UIScene anymore since UISystem is integrated into GameScene
+            // Pass the level number to the next scene
+            this.scene.start(nextSceneKey, { levelNumber: this.levelNumber });
         });
     }
     
