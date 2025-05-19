@@ -828,10 +828,13 @@
             // Create BombInputHandler if not already created
             if (!this.bombInputHandler) {
                 this.bombInputHandler = new BombInputHandler(this);
-                        }
-                        
+            }
+            
             // Set up input handlers through the BombInputHandler
             this.bombInputHandler.setupInputHandlers();
+            
+            // We'll let UIScene handle ESC key for pause functionality
+            // GameScene's ESC handler will be disabled to avoid conflicts
             
             if (this.debugMode) {
                 console.log("Input setup delegated to BombInputHandler");
@@ -840,8 +843,22 @@
             console.error("Error in setupInput:", error);
         }
     }
-    
- 
+
+    // Add new method to handle ESC key for pausing
+    handleEscKey() {
+        // Get reference to UIScene
+        const uiScene = this.scene.get('UIScene');
+        
+        // Toggle pause state through UIScene
+        if (uiScene) {
+            console.log("[GameScene.handleEscKey] ESC key pressed, current pause state:", uiScene.isPaused);
+            if (uiScene.isPaused) {
+                uiScene.resumeGame();
+            } else {
+                uiScene.showPauseMenu();
+            }
+        }
+    }
 
     decrementBombCount(bombType) {
         // Decrement the counter for the specific bomb type
@@ -3826,6 +3843,8 @@
             clearTimeout(this.bombState.autoResetTimer);
             this.bombState.autoResetTimer = null;
         }
+
+        // No need to remove ESC listeners since we're not adding them anymore
 
         // Explicitly remove event listeners for this scene instance
         if (this.events) {

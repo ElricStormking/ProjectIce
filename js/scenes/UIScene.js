@@ -1,58 +1,70 @@
 class UIScene extends Phaser.Scene {
     constructor() {
-        super({ key: 'UIScene' });
-        console.log("[UIScene.constructor] UIScene instantiated.");
-        this.gameScene = null;
-        this.UI_DEPTH = 1000;
+    super({ key: 'UIScene' });
+    console.log("[UIScene.constructor] UIScene instantiated.");
+    this.gameScene = null;
+    this.UI_DEPTH = 1000;
 
-        // Main UI elements
-        this.shotsText = null;
-        this.percentageText = null;
-        this.targetText = null;
-        this.scoreText = null;
-        this.progressBarBg = null;
-        this.progressBar = null;
-        this.progressText = null;
-        this.fullscreenButton = null;
+    // Main UI elements
+    this.shotsText = null;
+    this.percentageText = null;
+    this.targetText = null;
+    this.scoreText = null;
+    this.progressBarBg = null;
+    this.progressBar = null;
+    this.progressText = null;
+    this.fullscreenButton = null;
+    this.menuButton = null; // Add menu button reference
+    this.escKey = null; // Reference to ESC key for pause menu
 
-        // Bomb selector UI elements
-        this.bombSelectorContainer = null;
-        this.bombLabels = {};
-        this.bombCounters = {};
-        this.bombButtons = {};
-        this.selectionIndicator = null;
+    // Bomb selector UI elements
+    this.bombSelectorContainer = null;
+    this.bombLabels = {};
+    this.bombCounters = {};
+    this.bombButtons = {};
+    this.selectionIndicator = null;
 
-        // UI Containers
-        this.containers = {};
-    }
+    // UI Containers
+    this.containers = {};
+    
+    // Game state
+    this.isPaused = false; // Track pause state
+}
 
     create() {
-        console.log("[UIScene.create] VERY FIRST LINE IN CREATE");
-        console.log("[UIScene.create] About to call setupEventListeners().");
-        this.setupEventListeners();
+    console.log("[UIScene.create] VERY FIRST LINE IN CREATE");
+    
+    // Ensure we have the correct initial pause state
+    this.isPaused = false;
+    
+    // Get GameScene reference first
+    this.gameScene = this.scene.get('GameScene');
+    console.log("[UIScene.create] this.gameScene is:", this.gameScene);
+    
+    // Set up event listeners after we have a GameScene reference
+    console.log("[UIScene.create] About to call setupEventListeners().");
+    this.setupEventListeners();
+    
+    // Set up UI elements
+    this.setupUICamera();
+    this.createUIElements();    // For top bar UI (shots, percentage, score)
+    this.createBombSelector();  // For bottom bomb selection UI
 
-        this.gameScene = this.scene.get('GameScene');
-        console.log("[UIScene.create] this.gameScene is:", this.gameScene);
-        
-        this.setupUICamera();
-        this.createUIElements();    // For top bar UI (shots, percentage, score)
-        this.createBombSelector();  // For bottom bomb selection UI
-
-        // Check if GameScene data was already ready when UIScene started
-        const gameSceneReadyFlag = this.gameScene && this.gameScene.isInitialDataReady;
-        console.log("[UIScene.create] Checking gameSceneReadyFlag:", gameSceneReadyFlag, "(GameScene:", this.gameScene, ")");
-        if (gameSceneReadyFlag) {
-            console.log("UIScene: GameScene data was already ready on UIScene create. Requesting UI data immediately.");
-            this.requestInitialUIData();
-        }
-        
-        console.log("UIScene: create finished");
-
-        // Make sure this.gameScene is a valid reference to the GameScene instance
-        if (this.gameScene && this.gameScene.events) {
-            this.gameScene.events.on('showVictoryScreen', this.displayVictoryPopup, this);
-        }
+    // Check if GameScene data was already ready when UIScene started
+    const gameSceneReadyFlag = this.gameScene && this.gameScene.isInitialDataReady;
+    console.log("[UIScene.create] Checking gameSceneReadyFlag:", gameSceneReadyFlag, "(GameScene:", this.gameScene, ")");
+    if (gameSceneReadyFlag) {
+        console.log("UIScene: GameScene data was already ready on UIScene create. Requesting UI data immediately.");
+        this.requestInitialUIData();
     }
+    
+    // Make sure this.gameScene is a valid reference to the GameScene instance
+    if (this.gameScene && this.gameScene.events) {
+        this.gameScene.events.on('showVictoryScreen', this.displayVictoryPopup, this);
+    }
+    
+    console.log("UIScene: create finished");
+}
 
     setupEventListeners() {
         console.log("[UIScene.setupEventListeners] Called. Attempting to get GameScene reference.");
@@ -82,6 +94,17 @@ class UIScene extends Phaser.Scene {
         } else {
             console.error("[UIScene.setupEventListeners] ERROR: GameScene or GameScene.events is not available!");
         }
+
+        // Add ESC key listener for pause menu at the UIScene level
+        this.escKey = this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.ESC);
+        this.escKey.on('down', () => {
+            console.log("[UIScene.ESC] ESC key pressed, current pause state:", this.isPaused);
+            if (this.isPaused) {
+                this.resumeGame();
+            } else {
+                this.showPauseMenu();
+            }
+        });
     }
 
     createUIElements() {
@@ -98,6 +121,7 @@ class UIScene extends Phaser.Scene {
         if (this.progressBar) this.progressBar.destroy();
         if (this.progressText) this.progressText.destroy();
         if (this.fullscreenButton) this.fullscreenButton.destroy();
+        if (this.menuButton) this.menuButton.destroy(); // Clean up menu button
 
         this.shotsText = this.add.text(170, 40, 'Shots: ∞', {
             font: '28px Arial', fill: '#ffffff', stroke: '#000000', strokeThickness: 4
@@ -124,6 +148,31 @@ class UIScene extends Phaser.Scene {
         this.progressText = this.add.text(centerX, 90, '- %', {
             font: '14px Arial', fill: '#ffffff', stroke: '#000000', strokeThickness: 3
         }).setOrigin(0.5, 0.5).setDepth(this.UI_DEPTH + 2);
+
+        // Add Menu button at lower left corner
+        this.menuButton = this.add.text(100, 1020, 'Menu', {
+            font: '32px Arial',
+            fill: '#ffffff',
+            stroke: '#000000',
+            strokeThickness: 4,
+            backgroundColor: '#444444',
+            padding: { x: 15, y: 10 }
+        })
+        .setOrigin(0.5, 0.5)
+        .setInteractive({ useHandCursor: true })
+        .setDepth(this.UI_DEPTH + 2);
+
+        this.menuButton.on('pointerdown', () => {
+            this.showPauseMenu();
+        });
+
+        this.menuButton.on('pointerover', () => {
+            this.menuButton.setStyle({ fill: '#ffff00' });
+        });
+
+        this.menuButton.on('pointerout', () => {
+            this.menuButton.setStyle({ fill: '#ffffff' });
+        });
 
         // Add Fullscreen Button only on non-desktop devices
         if (!this.game.device.os.desktop) {
@@ -609,6 +658,14 @@ class UIScene extends Phaser.Scene {
         if (this.progressText && this.progressText.scene) { this.progressText.destroy(); this.progressText = null; }
         if (this.selectionIndicator && this.selectionIndicator.scene) { this.selectionIndicator.destroy(); this.selectionIndicator = null; }
         if (this.fullscreenButton && this.fullscreenButton.scene) { this.fullscreenButton.destroy(); this.fullscreenButton = null; }
+        if (this.menuButton && this.menuButton.scene) { this.menuButton.destroy(); this.menuButton = null; } // Clean up menu button
+        
+            // Remove the ESC key listener
+    if (this.escKey) {
+        this.escKey.removeAllListeners();
+        this.input.keyboard.removeKey(Phaser.Input.Keyboard.KeyCodes.ESC);
+        this.escKey = null;
+    }
         
         this.bombButtons = {}; this.bombLabels = {}; this.bombCounters = {};
 
@@ -800,5 +857,132 @@ class UIScene extends Phaser.Scene {
         
         // Level must have enough stars to be viewable
         return progress && progress.stars >= requiredStars;
+    }
+
+    showPauseMenu() {
+        console.log("[UIScene.showPauseMenu] Called, current isPaused:", this.isPaused);
+        if (this.isPaused) {
+            console.log("[UIScene.showPauseMenu] Already paused, ignoring");
+            return; // Prevent opening multiple times
+        }
+        
+        // Set pause flag first
+        this.isPaused = true;
+        console.log("[UIScene.showPauseMenu] Set isPaused to", this.isPaused);
+        
+        // Clear any existing pause menu first
+        this.clearExistingUIContainer('pauseMenu');
+        
+        // Pause GameScene
+        if (this.gameScene) {
+            this.gameScene.scene.pause(); // Pause the game scene
+            console.log("[UIScene.showPauseMenu] Paused GameScene");
+            
+            // If GameStateManager exists, sync the pause state
+            if (this.gameScene.gameStateManager) {
+                this.gameScene.gameStateManager.isPaused = true;
+                console.log("[UIScene.showPauseMenu] Updated GameStateManager pause state");
+            }
+        }
+
+        // Create new pause menu container
+        this.containers.pauseMenu = this.add.container(0, 0).setDepth(this.UI_DEPTH + 20);
+
+        // Semi-transparent overlay
+        const overlay = this.add.rectangle(960, 540, 1920, 1080, 0x000000, 0.7);
+        this.containers.pauseMenu.add(overlay);
+
+        // Pause menu title
+        const title = this.add.text(960, 300, 'Game Paused', {
+            font: '48px Arial',
+            fill: '#ffffff',
+            stroke: '#000000',
+            strokeThickness: 5
+        }).setOrigin(0.5);
+        this.containers.pauseMenu.add(title);
+
+        // Resume button
+        const resumeButton = this._createButton(this.containers.pauseMenu, 960, 450, 'Back to Playing', '#22aa22', () => {
+            this.resumeGame();
+        });
+
+        // Quit button
+        const quitButton = this._createButton(this.containers.pauseMenu, 960, 550, 'Quit And Go Back to Map', '#d51a1a', () => {
+            this.showQuitConfirmation();
+        });
+        
+        console.log("[UIScene.showPauseMenu] Pause menu created successfully");
+    }
+
+    resumeGame() {
+        console.log("[UIScene.resumeGame] Called, current isPaused:", this.isPaused);
+        if (!this.isPaused) {
+            console.log("[UIScene.resumeGame] Not paused, ignoring");
+            return;
+        }
+        
+        // First clear UI containers
+        this.clearExistingUIContainer('pauseMenu');
+        this.clearExistingUIContainer('quitConfirm');
+        
+        // Then update pause state
+        this.isPaused = false;
+        console.log("[UIScene.resumeGame] Set isPaused to", this.isPaused);
+        
+        // Finally resume the game scene
+        if (this.gameScene) {
+            // Update GameStateManager first
+            if (this.gameScene.gameStateManager) {
+                this.gameScene.gameStateManager.isPaused = false;
+                console.log("[UIScene.resumeGame] Updated GameStateManager pause state");
+            }
+            
+            // Resume the scene
+            this.gameScene.scene.resume();
+            console.log("[UIScene.resumeGame] Resumed GameScene");
+        }
+    }
+
+    showQuitConfirmation() {
+        this.clearExistingUIContainer('quitConfirm');
+        this.containers.quitConfirm = this.add.container(0, 0).setDepth(this.UI_DEPTH + 30); // Higher depth than pause menu
+
+        // Semi-transparent overlay
+        const overlay = this.add.rectangle(960, 540, 800, 400, 0x000000, 0.9);
+        overlay.setStrokeStyle(3, 0xffffff, 0.8);
+        this.containers.quitConfirm.add(overlay);
+
+        // Confirmation message
+        const message = this.add.text(960, 480, 'Are You Sure?', {
+            font: '36px Arial',
+            fill: '#ffffff',
+            stroke: '#000000',
+            strokeThickness: 4
+        }).setOrigin(0.5);
+        this.containers.quitConfirm.add(message);
+
+        // Create Yes button
+        const yesButton = this._createButton(this.containers.quitConfirm, 860, 580, 'Yes', '#d51a1a', () => {
+            this.quitToMap();
+        });
+
+        // Create No button
+        const noButton = this._createButton(this.containers.quitConfirm, 1060, 580, 'No', '#22aa22', () => {
+            this.clearExistingUIContainer('quitConfirm');
+        });
+    }
+
+    quitToMap() {
+        // Clear UI elements before leaving
+        this.clearExistingUIContainer('pauseMenu');
+        this.clearExistingUIContainer('quitConfirm');
+        
+        // Stop UI scene and game scene
+        if (this.gameScene) {
+            this.gameScene.scene.stop();
+        }
+        
+        // Return to the map scene
+        this.scene.start('StoryMapScene');
     }
 } 

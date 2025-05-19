@@ -7,6 +7,7 @@ class GameStateManager {
         this.UI_DEPTH = 1000; // Same depth as in GameScene
         this.lastBombActive = false; // Flag to track if last bomb is still active
         this.waitingForLastBomb = false; // Flag to indicate we're waiting for last bomb to resolve
+        this.isPaused = false; // Track pause state
     }
 
     // Initialize the manager
@@ -378,11 +379,20 @@ class GameStateManager {
         }
     }
 
-    // Check the game state for potential recovery from stuck situations
+    // Modified to handle pause state
     checkGameState() {
         if (!this.scene || !this.scene.isFullyInitialized || !this.scene.scene.isActive()) {
             // console.log("[GameStateManager.checkGameState] Scene not fully initialized or inactive, skipping check.");
             return;
+        }
+
+        // Check if UIScene is paused - if so, we should also be paused
+        const uiScene = this.scene.scene.get('UIScene');
+        if (uiScene && uiScene.isPaused) {
+            this.isPaused = true;
+            return; // Skip further checks if game is paused
+        } else {
+            this.isPaused = false;
         }
 
         const currentTime = Date.now();
@@ -411,7 +421,7 @@ class GameStateManager {
         const canCreateBomb = this.scene.shotsRemaining > 0 && 
                             !this.isLevelComplete && 
                             !this.isGameOver && 
-                            !this.scene.scene.isPaused();
+                            !this.isPaused;
                             
         if (!canCreateBomb) {
             // No need to check failsafe if we shouldn't have a bomb right now
@@ -475,6 +485,13 @@ class GameStateManager {
         // if (this.scene.bombLauncher && this.scene.bombLauncher.bombState) { this.scene.bombLauncher.bombState.active = false; }
     }
 
+    // New method to check if the game is paused
+    isPaused() {
+        // Check both the internal pause state and the scene pause state
+        const uiScene = this.scene.scene.get('UIScene');
+        return this.isPaused || (uiScene && uiScene.isPaused) || this.scene.scene.isPaused();
+    }
+
     // Reset the game state for a new level
     resetGameState() {
         console.log("[GameStateManager.resetGameState] Resetting game state.");
@@ -485,6 +502,7 @@ class GameStateManager {
         this.scene.gameOverSetBy = null; // RESET THE TRACKER
         this.lastBombActive = false;
         this.waitingForLastBomb = false;
+        this.isPaused = false; // Also reset pause state
         // ... other resets like score, revealPercentage, should be handled by GameScene's resetLevel or similar
         // This manager primarily focuses on the isGameOver and isLevelComplete flags.
     }
@@ -494,6 +512,7 @@ class GameStateManager {
         console.log("GameStateManager: shutting down");
         this.lastBombActive = false;
         this.waitingForLastBomb = false;
+        this.isPaused = false;
     }
 }
 
