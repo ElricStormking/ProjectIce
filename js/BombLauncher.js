@@ -613,13 +613,12 @@ class BombLauncher {
             // Update elastic line (bowstring)
             this.updateBowstring(bombX, bombY);
             
-            // Calculate velocity for trajectory based on the actual shot power
-            const effectiveForceX = dx * this.SHOT_POWER;
-            const effectiveForceY = dy * this.SHOT_POWER;
+            // Calculate force for trajectory and launch consistently
+            const { forceX: launchForceX, forceY: launchForceY } = this.calculateForce(pointer);
             
-            // Create trajectory dots
+            // Create trajectory dots using these precise force components (treated as velocity by createTrajectoryDots)
             const visualLineLength = clampedActualDragDistance * 3; // Scale actual drag distance for visual length
-            this.createTrajectoryDots(bombX, bombY, effectiveForceX, effectiveForceY, visualLineLength);
+            this.createTrajectoryDots(bombX, bombY, launchForceX, launchForceY, visualLineLength);
             
             if (this.debugMode) {
                 this.updateDebugText(`Drawing at ${bombX.toFixed(2)},${bombY.toFixed(2)}`);

@@ -217,11 +217,12 @@ class BlockUtils {
         const offsetX = Phaser.Math.Between(-10, 10);
         const offsetY = Phaser.Math.Between(-10, 10);
         
-        // Create a smaller piece
+        const textureKey = block.texture.key;
+
         const piece = this.scene.matter.add.image(
             block.x + offsetX,
             block.y + offsetY,
-            'iceBlock',
+            textureKey, 
             null,
             {
                 restitution: 0.8,
@@ -230,13 +231,10 @@ class BlockUtils {
             }
         );
         
-        // Scale down the piece (original was 60, now 15, pieces should be ~3.75)
-        piece.setScale(0.075 + Math.random() * 0.05); // Random size between 0.075 and 0.125 of original
+        // Scale piece: Source texture is 20x20. Target display size for pieces ~3.2px to 4.2px.
+        piece.setScale(0.16 + Math.random() * 0.05); 
         
-        // Make sure shattered pieces appear above the chibi image
-        piece.setDepth(5); // Higher than blocks (4) and blue veils (3), but lower than UI (100)
-        
-        // Apply random rotation
+        piece.setDepth(5);
         piece.setRotation(Math.random() * Math.PI * 2);
         
         // Apply random velocity

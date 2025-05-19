@@ -6,47 +6,47 @@ class StoryMapScene extends Phaser.Scene {
         this.playerAvatar = null;
         this.audioManager = null; // Reference to audio manager
         this.levelNodesData = [ // x, y positions are for the center of the node
-            // Starting path - bottom left, wide spacing
-            { id: 1,  x: 120, y: 900, nextLevel: 2, pathType: 'S' },
-            { id: 2,  x: 220, y: 850, nextLevel: 3, pathType: 'S' },
-            { id: 3,  x: 320, y: 800, nextLevel: 4, pathType: 'S' },
-            { id: 4,  x: 420, y: 750, nextLevel: 5, pathType: 'S' },
-            { id: 5,  x: 520, y: 700, nextLevel: 6, pathType: 'S' },
+            // Starting path - bottom left, with much greater spacing
+            { id: 1,  x: 150, y: 950, nextLevel: 2, pathType: 'S' },
+            { id: 2,  x: 380, y: 800, nextLevel: 3, pathType: 'S' },
+            { id: 3,  x: 610, y: 650, nextLevel: 4, pathType: 'S' },
+            { id: 4,  x: 840, y: 500, nextLevel: 5, pathType: 'S' },
+            { id: 5,  x: 1070, y: 650, nextLevel: 6, pathType: 'S' },
             
-            // Middle right path - guaranteed spacing
-            { id: 6,  x: 620, y: 650, nextLevel: 7, pathType: 'S' },
-            { id: 7,  x: 720, y: 680, nextLevel: 8, pathType: 'S' },
-            { id: 8,  x: 900, y: 710, nextLevel: 9, pathType: 'S' }, // Moved further right and down to avoid level 29
-            { id: 9,  x: 720, y: 540, nextLevel: 10, pathType: 'S' },
-            { id: 10, x: 620, y: 470, nextLevel: 11, pathType: 'S' },
+            // Middle right path - much wider horizontal spacing
+            { id: 6,  x: 1300, y: 500, nextLevel: 7, pathType: 'S' },
+            { id: 7,  x: 1530, y: 650, nextLevel: 8, pathType: 'S' },
+            { id: 8,  x: 1300, y: 800, nextLevel: 9, pathType: 'S' },
+            { id: 9,  x: 1070, y: 350, nextLevel: 10, pathType: 'S' },
+            { id: 10, x: 840, y: 200, nextLevel: 11, pathType: 'S' },
             
-            // Central segment - carefully spaced
-            { id: 11, x: 520, y: 400, nextLevel: 12, pathType: 'S' },
-            { id: 12, x: 420, y: 450, nextLevel: 13, pathType: 'S' },
-            { id: 13, x: 320, y: 500, nextLevel: 14, pathType: 'S' },
-            { id: 14, x: 220, y: 450, nextLevel: 15, pathType: 'S' },
-            { id: 15, x: 120, y: 400, nextLevel: 16, pathType: 'S' },
+            // Central-left segment - greater vertical separation
+            { id: 11, x: 1070, y: 200, nextLevel: 12, pathType: 'S' },
+            { id: 12, x: 1300, y: 200, nextLevel: 13, pathType: 'S' },
+            { id: 13, x: 610, y: 350, nextLevel: 14, pathType: 'S' },
+            { id: 14, x: 380, y: 350, nextLevel: 15, pathType: 'S' },
+            { id: 15, x: 150, y: 350, nextLevel: 16, pathType: 'S' },
             
-            // Left ascent - adequate spacing
-            { id: 16, x: 120, y: 300, nextLevel: 17, pathType: 'S' },
-            { id: 17, x: 220, y: 250, nextLevel: 18, pathType: 'S' },
-            { id: 18, x: 320, y: 200, nextLevel: 19, pathType: 'S' },
-            { id: 19, x: 420, y: 150, nextLevel: 20, pathType: 'S' },
-            { id: 20, x: 520, y: 200, nextLevel: 21, pathType: 'S' },
+            // Upper left path - increased vertical gaps
+            { id: 16, x: 150, y: 200, nextLevel: 17, pathType: 'S' },
+            { id: 17, x: 380, y: 200, nextLevel: 18, pathType: 'S' },
+            { id: 18, x: 610, y: 200, nextLevel: 19, pathType: 'S' },
+            { id: 19, x: 610, y: 50, nextLevel: 20, pathType: 'S' },
+            { id: 20, x: 840, y: 50, nextLevel: 21, pathType: 'S' },
             
-            // Top path - well spaced horizontal movement
-            { id: 21, x: 620, y: 250, nextLevel: 22, pathType: 'S' },
-            { id: 22, x: 720, y: 200, nextLevel: 23, pathType: 'S' },
-            { id: 23, x: 820, y: 250, nextLevel: 24, pathType: 'S' },
-            { id: 24, x: 920, y: 300, nextLevel: 25, pathType: 'S' },
-            { id: 25, x: 1020, y: 350, nextLevel: 26, pathType: 'S' },
+            // Upper right path - wider spacing throughout
+            { id: 21, x: 1070, y: 50, nextLevel: 22, pathType: 'S' },
+            { id: 22, x: 1300, y: 50, nextLevel: 23, pathType: 'S' },
+            { id: 23, x: 1530, y: 50, nextLevel: 24, pathType: 'S' },
+            { id: 24, x: 1530, y: 200, nextLevel: 25, pathType: 'S' },
+            { id: 25, x: 1530, y: 350, nextLevel: 26, pathType: 'S' },
             
-            // Final descent - far right side with good spacing
-            { id: 26, x: 1020, y: 450, nextLevel: 27, pathType: 'S' },
-            { id: 27, x: 1020, y: 550, nextLevel: 28, pathType: 'S' },
-            { id: 28, x: 920, y: 600, nextLevel: 29, pathType: 'S' },
-            { id: 29, x: 760, y: 600, nextLevel: 30, pathType: 'S' }, // Moved left to avoid level 8
-            { id: 30, x: 620, y: 750, nextLevel: null, pathType: 'S' } // Last level, adjusted for better path
+            // Final path on right - ensure no overlap with middle path
+            { id: 26, x: 1760, y: 350, nextLevel: 27, pathType: 'S' },
+            { id: 27, x: 1760, y: 500, nextLevel: 28, pathType: 'S' },
+            { id: 28, x: 1760, y: 650, nextLevel: 29, pathType: 'S' },
+            { id: 29, x: 1760, y: 800, nextLevel: 30, pathType: 'S' },
+            { id: 30, x: 1530, y: 800, nextLevel: null, pathType: 'S' }
         ];
         this.levelNodeObjects = {}; // To store Phaser game objects for nodes
         this.albumButton = null; // Reference to the album button
@@ -156,17 +156,26 @@ class StoryMapScene extends Phaser.Scene {
 
         this.createPlayerAvatar();
 
-        // Ensure avatar starts at level 1 when first entering the Story Map
-        const initialAvatarNode = this.levelNodesData.find(node => node.id === 1);
+        // Ensure avatar starts at the right position when first entering the Story Map
+        const initialAvatarNode = this.levelNodesData.find(node => node.id === this.currentLevel);
         
         if (initialAvatarNode && this.avatarContainer) {
-            // Always position at level 1 for first entry
-            this.avatarContainer.setPosition(initialAvatarNode.x, initialAvatarNode.y);
-            console.log("Positioned avatar container at level 1 for first Story Map entry");
-        } else if (this.levelNodeObjects[1] && this.avatarContainer) {
+            // Position avatar above the button
+            const buttonHeight = 100; // Match height in createLevelNode
+            const avatarX = initialAvatarNode.x;
+            const avatarY = initialAvatarNode.y - (buttonHeight/2) - 20; // 20px above the button
+            
+            this.avatarContainer.setPosition(avatarX, avatarY);
+            console.log(`Positioned avatar container at level ${this.currentLevel} (${avatarX}, ${avatarY})`);
+        } else if (this.levelNodeObjects[this.currentLevel] && this.avatarContainer) {
             // Fallback if node not found in data array
-            this.avatarContainer.setPosition(this.levelNodeObjects[1].x, this.levelNodeObjects[1].y);
-            console.log("Using levelNodeObjects fallback to position avatar container at level 1");
+            const targetNode = this.levelNodeObjects[this.currentLevel];
+            const buttonHeight = 100;
+            const avatarX = targetNode.x;
+            const avatarY = targetNode.y - (buttonHeight/2) - 20;
+            
+            this.avatarContainer.setPosition(avatarX, avatarY);
+            console.log(`Using levelNodeObjects fallback to position avatar at level ${this.currentLevel}`);
         }
 
         this.input.on('pointerdown', (pointer) => {
@@ -211,16 +220,45 @@ class StoryMapScene extends Phaser.Scene {
             if (nodeData.nextLevel) {
                 const nextNodeData = this.levelNodesData.find(n => n.id === nodeData.nextLevel);
                 if (nextNodeData) {
+                    // Path now connects to bottom center of the current button and top center of the next button
+                    const buttonHeight = 100; // Match the height used in createLevelNode
+                    const buttonWidth = 180;  // Match the width used in createLevelNode
+                    
+                    // Calculate connection points at the edges of the buttons
+                    let startX = nodeData.x;
+                    let startY = nodeData.y;
+                    let endX = nextNodeData.x;
+                    let endY = nextNodeData.y;
+                    
+                    // Adjust connection points based on relative positions
+                    if (nextNodeData.y > nodeData.y + buttonHeight) {
+                        // Next node is below - connect from bottom to top
+                        startY = nodeData.y + buttonHeight/2;
+                        endY = nextNodeData.y - buttonHeight/2;
+                    } else if (nextNodeData.y < nodeData.y - buttonHeight) {
+                        // Next node is above - connect from top to bottom
+                        startY = nodeData.y - buttonHeight/2;
+                        endY = nextNodeData.y + buttonHeight/2;
+                    } else if (nextNodeData.x > nodeData.x) {
+                        // Next node is to the right - connect from right to left
+                        startX = nodeData.x + buttonWidth/2;
+                        endX = nextNodeData.x - buttonWidth/2;
+                    } else {
+                        // Next node is to the left - connect from left to right
+                        startX = nodeData.x - buttonWidth/2;
+                        endX = nextNodeData.x + buttonWidth/2;
+                    }
+                    
                     // Draw glow effect first (behind main line)
                     glowGraphics.beginPath();
-                    glowGraphics.moveTo(nodeData.x, nodeData.y);
-                    glowGraphics.lineTo(nextNodeData.x, nextNodeData.y);
+                    glowGraphics.moveTo(startX, startY);
+                    glowGraphics.lineTo(endX, endY);
                     glowGraphics.strokePath();
                     
                     // Draw main path line
                     graphics.beginPath();
-                    graphics.moveTo(nodeData.x, nodeData.y);
-                    graphics.lineTo(nextNodeData.x, nextNodeData.y);
+                    graphics.moveTo(startX, startY);
+                    graphics.lineTo(endX, endY);
                     graphics.strokePath();
                 }
             }
@@ -240,48 +278,81 @@ class StoryMapScene extends Phaser.Scene {
             this.playerProgress[1] = progress; // ensure it's in playerProgress
         }
 
-        // Use more vibrant colors for better visibility against the background
+        // Define button dimensions and colors
+        const buttonWidth = 180;
+        const buttonHeight = 100;
         let fillColor, strokeColor;
-        const nodeRadius = 30;
         
         if (progress.unlocked) {
             if (progress.stars > 0) {
                 // Completed levels (with stars)
-                fillColor = 0x2ecc71;    // Bright green
-                strokeColor = 0xffffff;  // White border for contrast
+                fillColor = 0xA67C52;    // Brown/copper color for completed levels
+                strokeColor = 0xFFD700;  // Gold border for contrast
             } else {
                 // Just unlocked but not completed
-                fillColor = 0xf1c40f;    // Bright yellow
-                strokeColor = 0xffffff;  // White border for contrast
+                fillColor = 0xA67C52;    // Brown/copper color
+                strokeColor = 0xFFFFFF;  // White border for contrast
             }
         } else {
             // Locked levels
-            fillColor = 0x7f8c8d;       // Darker gray
-            strokeColor = 0x2c3e50;     // Dark blue-gray border
+            fillColor = 0x555555;       // Darker gray
+            strokeColor = 0x999999;     // Light gray border
         }
 
-        // Create the main node circle with improved visuals
-        const nodeCircle = this.add.circle(nodeData.x, nodeData.y, nodeRadius, fillColor, 1)
+        // Create the button background with rounded corners
+        const nodeButton = this.add.rectangle(nodeData.x, nodeData.y, buttonWidth, buttonHeight, fillColor, 1)
             .setStrokeStyle(4, strokeColor, 1)
             .setInteractive({ useHandCursor: progress.unlocked });
             
-        // Add a subtle glow effect to unlocked nodes
-        if (progress.unlocked) {
-            const glow = this.add.circle(nodeData.x, nodeData.y, nodeRadius + 5, strokeColor, 0.3);
-            glow.setDepth(0.7); // Just above paths but below the main node
-        }
+        // Add a darker header area at the top of the button
+        const headerHeight = 30;
+        const headerBg = this.add.rectangle(
+            nodeData.x, 
+            nodeData.y - (buttonHeight/2) + (headerHeight/2), 
+            buttonWidth, 
+            headerHeight, 
+            0x333333, 
+            1
+        );
+        
+        // Add level number text in the header
+        const levelText = this.add.text(
+            nodeData.x - (buttonWidth/2) + 15, 
+            nodeData.y - (buttonHeight/2) + (headerHeight/2), 
+            `Level ${nodeData.id}`, 
+            {
+                font: '18px Arial',
+                fill: '#ffffff',
+                stroke: '#000000',
+                strokeThickness: 3
+            }
+        ).setOrigin(0, 0.5);
+        
+        // Add preview text in the main part of the button
+        const previewText = this.add.text(
+            nodeData.x, 
+            nodeData.y, 
+            `Level ${nodeData.id}\nPreview`, 
+            {
+                font: '22px Arial',
+                fill: '#ffffff',
+                stroke: '#000000',
+                strokeThickness: 3,
+                align: 'center'
+            }
+        ).setOrigin(0.5);
         
         // Add event listener for node click
-        nodeCircle.on('pointerdown', () => {
+        nodeButton.on('pointerdown', () => {
             if (progress.unlocked) {
                 this.startLevel(nodeData.id);
             } else {
                 console.log(`Level ${nodeData.id} is locked.`);
                 // Add a visual feedback for locked nodes
                 this.tweens.add({
-                    targets: nodeCircle,
-                    scaleX: 1.2,
-                    scaleY: 1.2,
+                    targets: nodeButton,
+                    scaleX: 1.05,
+                    scaleY: 1.05,
                     duration: 100,
                     yoyo: true,
                     ease: 'Sine.easeInOut'
@@ -294,37 +365,64 @@ class StoryMapScene extends Phaser.Scene {
             }
         });
 
-        // Add level number text with improved contrast
-        const levelText = this.add.text(nodeData.x, nodeData.y, nodeData.id.toString(), {
-            font: '24px Arial',
-            fill: '#ffffff',
-            stroke: '#000000',
-            strokeThickness: 4
-        }).setOrigin(0.5);
-        
-        // Increase depth for better visibility
-        nodeCircle.setDepth(1);
-        levelText.setDepth(2);
+        // Set appropriate depths for overlapping elements
+        headerBg.setDepth(1.1);
+        nodeButton.setDepth(1);
+        levelText.setDepth(1.2);
+        previewText.setDepth(1.2);
 
-        // Star display with improved visibility
-        const starYOffset = nodeRadius + 15;
+        // Add star rating at the bottom of the button
+        const starSpacing = 25;
+        const starsY = nodeData.y + (buttonHeight/2) - 20; // Position stars at the bottom with margin
+        const starsStartX = nodeData.x - starSpacing;
+        
         for (let i = 0; i < 3; i++) {
-            const starChar = (i < progress.stars) ? '★' : '☆';
-            const starColor = (i < progress.stars) ? '#FFD700' : '#FFFFFF';
-            const starOutline = (i < progress.stars) ? '#000000' : '#333333';
+            const starX = starsStartX + (i * starSpacing);
+            const isFilled = i < progress.stars;
             
-            // Add stroke to stars for better visibility
-            const star = this.add.text(nodeData.x - 20 + (i * 20), nodeData.y + starYOffset, starChar, {
-                font: '20px Arial',
+            // Create star using text characters with improved visibility
+            const starChar = isFilled ? '★' : '☆';
+            const starColor = isFilled ? '#FFD700' : '#FFFFFF';
+            const starOutline = '#000000';
+            
+            const star = this.add.text(starX, starsY, starChar, {
+                font: '24px Arial',
                 fill: starColor,
                 stroke: starOutline,
                 strokeThickness: 3
             }).setOrigin(0.5);
             
-            star.setDepth(2);
+            star.setDepth(1.2);
         }
         
-        this.levelNodeObjects[nodeData.id] = nodeCircle; // Store the circle object for avatar positioning
+        // If level is locked, add a lock icon or effect
+        if (!progress.unlocked) {
+            // Add gray overlay to indicate locked status
+            const lockOverlay = this.add.rectangle(
+                nodeData.x, 
+                nodeData.y, 
+                buttonWidth - 10, 
+                buttonHeight - 10, 
+                0x000000, 
+                0.5
+            );
+            lockOverlay.setDepth(1.5);
+            
+            // Add lock icon
+            const lockIcon = this.add.text(
+                nodeData.x, 
+                nodeData.y, 
+                '🔒', 
+                {
+                    font: '32px Arial',
+                    fill: '#ffffff'
+                }
+            ).setOrigin(0.5);
+            lockIcon.setDepth(1.6);
+        }
+        
+        // Store reference to the button for avatar positioning
+        this.levelNodeObjects[nodeData.id] = nodeButton;
     }
 
     createPlayerAvatar() {
@@ -361,8 +459,15 @@ class StoryMapScene extends Phaser.Scene {
     moveAvatarToLevel(levelId) {
         const targetNode = this.levelNodeObjects[levelId];
         if (targetNode && this.avatarContainer) {
+            // For the button design, place the avatar above the button
+            const buttonHeight = 100; // Match height in createLevelNode
+            
+            // Position for the avatar (centered above the button)
+            const avatarX = targetNode.x;
+            const avatarY = targetNode.y - (buttonHeight/2) - 20; // 20px above the button
+            
             // Add a flash effect at the destination
-            const flash = this.add.circle(targetNode.x, targetNode.y, 35, 0xffffff, 0.7);
+            const flash = this.add.circle(avatarX, avatarY, 35, 0xffffff, 0.7);
             flash.setDepth(2);
             
             // Animate the flash
@@ -377,14 +482,14 @@ class StoryMapScene extends Phaser.Scene {
                 }
             });
             
-            // Move the avatar container to the target node
+            // Move the avatar container to the target position
             this.tweens.add({
                 targets: this.avatarContainer,
-                x: targetNode.x,
-                y: targetNode.y,
+                x: avatarX,
+                y: avatarY,
                 duration: 700,
                 ease: 'Power2',
-                onStart: () => { console.log(`Avatar moving to level ${levelId} (${targetNode.x}, ${targetNode.y})`); },
+                onStart: () => { console.log(`Avatar moving to level ${levelId} (${avatarX}, ${avatarY})`); },
                 onComplete: () => {
                     console.log(`Avatar arrived at level ${levelId}`);
                     this.currentLevel = levelId; // Update current level after movement

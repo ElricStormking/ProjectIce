@@ -247,40 +247,49 @@ class TitleScene extends Phaser.Scene {
             align: 'center'
         };
         
-        // Position buttons at the bottom left with padding
+        // Position buttons on the middle left with padding
         const leftPadding = 50;
-        const bottomPadding = 50;
+        // bottomPadding is no longer used for Y positioning of this group
         const buttonX = leftPadding + 110; // Center of button, accounting for width
         const spacing = 70; // Vertical spacing between buttons
         
-        // Calculate Y positions starting from bottom up
-        const baseY = this.cameras.main.height - bottomPadding;
+        // Calculate Y positions based on the center of the screen
+        const centerY = this.cameras.main.height / 2;
         
-        // Options Button (bottom)
-        const optionsButton = this.createButton(
+        // Continue Button (top-most of the group)
+        const continueButton = this.createButton(
             buttonX, 
-            baseY, 
-            'Options', 
+            centerY - (spacing * 1.5), // Adjusted Y for middle positioning
+            'Continue', 
             buttonStyle, 
-            () => this.toggleOptionsPanel()
+            () => this.handleContinueGame()
         );
         
-        // New Game Button (middle)
+        // New Game Button
         const newGameButton = this.createButton(
             buttonX, 
-            baseY - spacing, 
+            centerY - (spacing * 0.5), // Adjusted Y
             'New Game', 
             buttonStyle, 
             () => this.showConfirmationDialog()
         );
         
-        // Continue Button (top)
-        const continueButton = this.createButton(
+        // Options Button
+        const optionsButton = this.createButton(
             buttonX, 
-            baseY - (spacing * 2), 
-            'Continue', 
+            centerY + (spacing * 0.5), // Adjusted Y
+            'Options', 
             buttonStyle, 
-            () => this.handleContinueGame()
+            () => this.toggleOptionsPanel()
+        );
+
+        // Quit Button (bottom-most of the group)
+        const quitButton = this.createButton(
+            buttonX, 
+            centerY + (spacing * 1.5), // Adjusted Y
+            'Quit', 
+            buttonStyle, 
+            () => this.handleQuitGame()
         );
     }
     
@@ -468,6 +477,68 @@ class TitleScene extends Phaser.Scene {
         this.optionsPanel.setVisible(!this.optionsPanel.visible);
     }
     
+    handleQuitGame() {
+        // Create a confirmation dialog for quitting
+        const quitDialogContainer = this.add.container(this.cameras.main.width / 2, this.cameras.main.height / 2);
+        quitDialogContainer.setDepth(200); // Ensure it's above everything
+        
+        // Background panel
+        const panel = this.add.rectangle(0, 0, 500, 250, 0x000000, 0.8);
+        panel.setStrokeStyle(2, 0xffffff);
+        
+        // Confirmation text
+        const confirmText = this.add.text(0, -70, 'Are you sure you want to quit?', {
+            font: '32px Arial',
+            fill: '#ffffff',
+            align: 'center'
+        }).setOrigin(0.5);
+        
+        // Yes button
+        const yesButton = this.createButton(-100, 60, 'Yes', {
+            font: '28px Arial',
+            fill: '#ffffff'
+        }, () => {
+            // Attempt to close the window - this may be blocked by browsers
+            window.close();
+            
+            // If window.close() is blocked, show a message
+            const closeMessage = this.add.text(0, 0, 'Please close the browser window manually.', {
+                font: '24px Arial',
+                fill: '#ff9999',
+                align: 'center'
+            }).setOrigin(0.5);
+            
+            quitDialogContainer.add(closeMessage);
+            
+            // Hide the yes/no buttons
+            yesButton.button.setVisible(false);
+            yesButton.buttonText.setVisible(false);
+            noButton.button.setVisible(false);
+            noButton.buttonText.setVisible(false);
+            
+            // Add a close dialog button
+            const okButton = this.createButton(0, 60, 'OK', {
+                font: '28px Arial',
+                fill: '#ffffff'
+            }, () => {
+                quitDialogContainer.destroy();
+            });
+            
+            quitDialogContainer.add([okButton.button, okButton.buttonText]);
+        });
+        
+        // No button
+        const noButton = this.createButton(100, 60, 'No', {
+            font: '28px Arial',
+            fill: '#ffffff'
+        }, () => {
+            quitDialogContainer.destroy();
+        });
+        
+        // Add all elements to container
+        quitDialogContainer.add([panel, confirmText, yesButton.button, yesButton.buttonText, noButton.button, noButton.buttonText]);
+    }
+    
     resetAllProgress() {
         // Clear all progress from localStorage
         localStorage.removeItem('phaserQixPlayerProgress');
@@ -570,6 +641,13 @@ class TitleScene extends Phaser.Scene {
             this.optionsPanel.destroy(true);
             this.optionsPanel = null;
         }
+        
+        // Clean up any quit dialog that might be open
+        this.children.getAll().forEach(child => {
+            if (child.type === 'Container' && child.depth === 200) {
+                child.destroy(true);
+            }
+        });
         
         console.log('TitleScene: Shutdown complete');
     }

@@ -57,6 +57,18 @@ class BlockTypes {
             [this.TYPES.ETERNAL]: 3,
             [this.TYPES.BOUNCY]: 1
         };
+
+        /**
+         * Block texture keys by type
+         * @type {Object}
+         */
+        this.TEXTURES = {
+            [this.TYPES.STANDARD]: 'ice_block_standard',
+            [this.TYPES.STRONG]: 'ice_block_strong',
+            [this.TYPES.DYNAMITE]: 'dynamite_block',
+            [this.TYPES.ETERNAL]: 'ice_block_eternal',
+            [this.TYPES.BOUNCY]: 'bouncy_block' // Assuming 'bouncy.png' key becomes 'bouncy_block'
+        };
     }
     
     /**
@@ -84,6 +96,15 @@ class BlockTypes {
      */
     getHitPoints(blockType) {
         return this.HIT_POINTS[blockType] || this.HIT_POINTS[this.TYPES.STANDARD];
+    }
+    
+    /**
+     * Get texture key for a given block type
+     * @param {string} blockType - The type of block to get texture for
+     * @returns {string} The texture key
+     */
+    getTexture(blockType) {
+        return this.TEXTURES[blockType] || this.TEXTURES[this.TYPES.STANDARD];
     }
     
     /**

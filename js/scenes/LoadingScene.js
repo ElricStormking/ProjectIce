@@ -128,10 +128,13 @@ class LoadingScene extends Phaser.Scene {
             }
         ).setOrigin(0.5);
         
+        // Load the hourglass image
+        this.load.image('hourglass', 'assets/images/loading.png');
+        
         // Loading UI with more detailed information
         const loadingText = this.add.text(
             1920/2,
-            1080/2 - 120,
+            1080/2 - 120, // Adjusted Y to make space for hourglass
             'Loading Game Assets...',
             { 
                 font: '42px Arial', 
@@ -144,7 +147,7 @@ class LoadingScene extends Phaser.Scene {
         // Add asset details text
         this.assetText = this.add.text(
             1920/2,
-            1080/2 - 60,
+            1080/2 - 60, // Adjusted Y
             'Preparing...',
             { 
                 font: '32px Arial', 
@@ -156,12 +159,29 @@ class LoadingScene extends Phaser.Scene {
         const progressBar = this.add.graphics();
         const progressBox = this.add.graphics();
         progressBox.fillStyle(0x222222, 0.8);
+        // Position progress bar slightly lower to accommodate hourglass
+        const progressBarY = 1080/2 + 60; 
         progressBox.fillRect(
             1920/2 - 400,
-            1080/2,
+            progressBarY, // Use adjusted Y
             800,
             70
         );
+        
+        // Add the hourglass image - do this before load events if image is already loaded, or in 'complete' otherwise.
+        // For simplicity, let's add it here and it will appear once loaded.
+        const hourglassImage = this.add.image(1920/2, 1080/2 - 220, 'hourglass'); // Positioned above loading text
+        hourglassImage.setScale(0.5); // Adjust scale as needed
+        hourglassImage.setOrigin(0.5);
+
+        // Make the hourglass spin
+        this.tweens.add({
+            targets: hourglassImage,
+            angle: 360,
+            duration: 2000, // Duration for one full spin
+            repeat: -1, // Repeat indefinitely
+            ease: 'Linear'
+        });
         
         // Add loading events
         this.load.on('progress', (value) => {
@@ -169,7 +189,7 @@ class LoadingScene extends Phaser.Scene {
             progressBar.fillStyle(0x00ff00, 1);
             progressBar.fillRect(
                 1920/2 - 390,
-                1080/2 + 10,
+                progressBarY + 10, // Adjusted Y for progress bar fill
                 780 * value,
                 50
             );
