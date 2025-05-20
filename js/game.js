@@ -1,3 +1,5 @@
+let phaserGame; // Declare globally
+
 const config = {
     type: Phaser.AUTO,
     width: 1920,
@@ -9,17 +11,16 @@ const config = {
         autoCenter: Phaser.Scale.CENTER_BOTH,
         width: 1920,
         height: 1080,
-        min: {
+        /* min: {
             width: 960,
             height: 540
         },
         max: {
             width: 1920,
             height: 1080
-        },
+        }, */
         zoom: 1,        // Default zoom level (can be adjusted)
         autoRound: true, // Round pixel values to avoid blurring
-        expandParent: true
     },
     physics: {
         default: 'matter',
@@ -73,8 +74,8 @@ const config = {
         willReadFrequently: true // Add this option for better performance with frequent pixel operations
     },
     scene: [
-        TitleScene,
         BootScene,
+        TitleScene,
         MainMenuScene,
         LoadingScene,
         StoryMapScene,
@@ -90,18 +91,18 @@ const config = {
 };
 
 window.addEventListener('load', () => {
-    // Create the game instance
-    const game = new Phaser.Game(config);
+    // Create the game instance and assign to global
+    phaserGame = new Phaser.Game(config);
     
-    // Listen for window resize events
+    // The 'resize' event listener in index.html will now handle calling setGameHeight,
+    // which in turn will call phaserGame.scale.refresh().
+    // So, the specific phaserGame.scale.refresh() call in the resize listener below can be removed
+    // if we ensure setGameHeight is robustly calling it.
     window.addEventListener('resize', () => {
-        // Notify game scale manager to update size
-        if (game.scale) {
-            // Log the new dimensions
-            console.log(`Window resized: ${window.innerWidth}x${window.innerHeight}`);
-            // Update the scale
-            game.scale.refresh();
-        }
+        // if (phaserGame && phaserGame.scale) { // This logic will be moved to setGameHeight
+        //     console.log(`Window resized event in game.js: ${window.innerWidth}x${window.innerHeight}`);
+        //     phaserGame.scale.refresh(); 
+        // }
     });
     
     // Listen for errors

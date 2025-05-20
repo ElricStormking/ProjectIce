@@ -3918,6 +3918,7 @@
         this.load.image('dynamite_block', 'assets/images/dynamite_block.png');
         this.load.image('ice_block_eternal', 'assets/images/ice_block_eternal.png');
         this.load.image('bouncy_block', 'assets/images/bouncy.png'); // Keyed as 'bouncy_block'
+        this.load.image('guidearrow', 'assets/images/guidearrow.png'); // Added guidearrow.png
 
         // ... (other preload assets) ...
     }

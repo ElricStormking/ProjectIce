@@ -75,12 +75,14 @@ class BombLauncher {
         this.trajectoryDotGroup = this.scene.add.group(); // Create an empty group
         for (let i = 0; i < 70; i++) {
             // Create a small circle graphic instead of a sprite
-            const dot = this.scene.add.circle(-100, -100, 3, 0xffffff); // Default white, radius 3
-            dot.setDepth(this.scene.UI_DEPTH + 1000); // Ensure high depth for debugging
-            dot.setVisible(false);
-            dot.setActive(false);
-            this.trajectoryDotGroup.add(dot); // Add it to the group
-            this.scene.add.existing(dot); // Explicitly add the dot to the scene's display list
+            // const dot = this.scene.add.circle(-100, -100, 3, 0xffffff); // Default white, radius 3
+            const arrow = this.scene.add.image(-100, -100, 'guidearrow'); // Use the guidearrow image
+            arrow.setDepth(this.scene.UI_DEPTH + 1000); // Ensure high depth for debugging
+            arrow.setVisible(false);
+            arrow.setActive(false);
+            arrow.setScale(0.5); // Adjust scale as needed
+            this.trajectoryDotGroup.add(arrow); // Add it to the group
+            this.scene.add.existing(arrow); // Explicitly add the arrow to the scene's display list
         }
         // Explicitly add the group itself to the scene as well
         this.scene.add.existing(this.trajectoryDotGroup);
@@ -382,7 +384,8 @@ class BombLauncher {
         try {
             // Calculate trajectory points using the refined method
             this.calculateTrajectoryPoints(startX, startY, velocityX, velocityY, visualLineLength);
-            
+            const trajectoryAngle = Math.atan2(velocityY, velocityX) * Phaser.Math.RAD_TO_DEG; // Calculate angle in degrees
+
             // Draw dotted line connecting trajectory points
             if (this.trajectoryPoints.length >= 2) {
                 // Ensure the dot group exists
@@ -394,12 +397,14 @@ class BombLauncher {
                          this.trajectoryDotGroup = this.scene.add.group(); // Create an empty group
                          for (let i = 0; i < 70; i++) {
                              // Create a small circle graphic instead of a sprite
-                             const dot = this.scene.add.circle(-100, -100, 3, 0xffffff); // Default white, radius 3
-                             dot.setDepth(this.scene.UI_DEPTH + 1000); // Ensure high depth for debugging
-                             dot.setVisible(false);
-                             dot.setActive(false);
-                             this.trajectoryDotGroup.add(dot); // Add it to the group
-                             this.scene.add.existing(dot); // Also add to scene display list during re-init
+                             // const dot = this.scene.add.circle(-100, -100, 3, 0xffffff); // Default white, radius 3
+                             const arrow = this.scene.add.image(-100, -100, 'guidearrow');
+                             arrow.setDepth(this.scene.UI_DEPTH + 1000); // Ensure high depth for debugging
+                             arrow.setVisible(false);
+                             arrow.setActive(false);
+                             arrow.setScale(0.5); // Adjust scale as needed
+                             this.trajectoryDotGroup.add(arrow); // Add it to the group
+                             this.scene.add.existing(arrow); // Also add to scene display list during re-init
                          }
                          // Explicitly add the re-initialized group itself to the scene
                          this.scene.add.existing(this.trajectoryDotGroup);
@@ -412,25 +417,26 @@ class BombLauncher {
                 }
 
                 // Get all children from the group
-                const dots = this.trajectoryDotGroup.getChildren();
+                const arrows = this.trajectoryDotGroup.getChildren();
 
-                // Hide all dots first
-                dots.forEach(dot => dot.setVisible(false).setActive(false));
+                // Hide all arrows first
+                arrows.forEach(arrow => arrow.setVisible(false).setActive(false));
 
-                let dotsDrawn = 0;
+                let arrowsDrawn = 0;
                 const skipFactor = Math.ceil(this.trajectoryPoints.length / 60); // MOVED skipFactor here
-                for (let i = 0; i < this.trajectoryPoints.length && dotsDrawn < dots.length; i += skipFactor) {
-                    const dot = dots[dotsDrawn]; 
+                for (let i = 0; i < this.trajectoryPoints.length && arrowsDrawn < arrows.length; i += skipFactor) {
+                    const arrow = arrows[arrowsDrawn]; 
                     const point = this.trajectoryPoints[i];
 
-                    if (dot && dot.scene) { 
-                        dot.setPosition(point.x, point.y);
-                        dot.setAlpha(1.0);
-                        dot.setRadius(5);
-                        dot.setFillStyle(0xFF00FF, 1.0); // Bright magenta
-                        dot.setActive(true);
-                        dot.setVisible(true);
-                        dotsDrawn++;
+                    if (arrow && arrow.scene) { 
+                        arrow.setPosition(point.x, point.y);
+                        arrow.setAngle(trajectoryAngle); // Set the angle of the arrow
+                        arrow.setAlpha(1.0);
+                        // arrow.setRadius(5); // Not applicable for images
+                        // arrow.setFillStyle(0xFF00FF, 1.0); // Not applicable for images
+                        arrow.setActive(true);
+                        arrow.setVisible(true);
+                        arrowsDrawn++;
                     }
                 }
             }

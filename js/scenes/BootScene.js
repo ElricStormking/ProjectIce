@@ -18,6 +18,10 @@ class BootScene extends Phaser.Scene {
         this.checkOrientation();
         this.scale.on('orientationchange', this.checkOrientation, this);
 
+        // Ensure initial scale is correct after setGameHeight has run once on window.load
+        console.log("[PhaserQix Debug] BootScene: Calling this.scale.refresh() for initial setup.");
+        this.scale.refresh();
+
         this.scene.start('TitleScene');
     }
 
